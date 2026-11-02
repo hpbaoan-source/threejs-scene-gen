@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CASACOR — Modern Luxury Villa</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      font-family: Inter, Arial, sans-serif;
+      background: #dce9ef;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      cursor: grab;
+    }
+    canvas:active { cursor: grabbing; }
+    .hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .brand {
+      position: absolute;
+      top: 22px;
+      left: 26px;
+      color: #173d36;
+      letter-spacing: 0.16em;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      text-shadow: 0 1px 12px rgba(255,255,255,.9);
+    }
+    .brand span {
+      display: block;
+      margin-top: 6px;
+      color: #60736e;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: .12em;
+    }
+    .info {
+      position: absolute;
+      left: 26px;
+      top: 76px;
+      padding: 10px 13px;
+      border: 1px solid rgba(255,255,255,.65);
+      border-radius: 9px;
+      background: rgba(247,251,249,.72);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 24px rgba(30,55,48,.1);
+      color: #39544e;
+      font-size: 10px;
+      line-height: 1.55;
+    }
+    .info strong {
+      display: block;
+      margin-bottom: 2px;
+      color: #173d36;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .controls {
+      position: absolute;
+      right: 24px;
+      top: 22px;
+      display: flex;
+      gap: 5px;
+      padding: 5px;
+      pointer-events: auto;
+      border: 1px solid rgba(255,255,255,.7);
+      border-radius: 9px;
+      background: rgba(247,251,249,.84);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 24px rgba(30,55,48,.12);
+    }
+    button {
+      min-width: 40px;
+      height: 32px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #31584f;
+      font: 600 10px/1 Inter, Arial, sans-serif;
+      cursor: pointer;
+      transition: .2s ease;
+    }
+    button:hover {
+      color: white;
+      background: #287467;
+    }
+    .hint {
+      position: absolute;
+      right: 26px;
+      top: 72px;
+      padding: 7px 10px;
+      border-radius: 7px;
+      color: rgba(37,71,64,.72);
+      background: rgba(255,255,255,.48);
+      backdrop-filter: blur(8px);
+      font-size: 9px;
+      letter-spacing: .04em;
+    }
+    @media (max-width: 700px) {
+      .brand { top: 14px; left: 16px; }
+      .hint { display: none; }
+      .info { left: 14px; top: 61px; }
+      .controls { right: 14px; top: 14px; }
+      button { padding: 0 7px; min-width: 34px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <div class="brand">Casacor<span>Modern villa · architectural study</span></div>
+    <div class="hint">Drag to orbit · Wheel to zoom · Right-drag to pan</div>
+    <div class="info">
+      <strong>Residence 01</strong>
+      Two-storey contemporary villa<br>
+      Navy hipped roof · Garden pool · Terrace
+    </div>
+    <div class="controls">
+      <button data-view="iso">Aerial</button>
+      <button data-view="front">Front</button>
+      <button data-view="top">Plan</button>
+      <button data-view="reset">Reset</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js';
+
+    // Renderer, scene and daylight
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xdcebf1);
+    scene.fog = new THREE.Fog(0xdcebf1, 44, 86);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.06;
+    document.body.appendChild(renderer.domElement);
+
+    const camera = new THREE.OrthographicCamera(-16, 16, 10, -10, 0.1, 160);
+    const target = new THREE.Vector3(0.6, 1.7, -0.15);
+    let azimuth = 0.7;
+    let polar = 0.79;
+    let zoom = 1;
+    const cameraDistance = 34;
+
+    function updateCamera() {
+      const sinP = Math.sin(polar);
+      camera.position.set(
+        target.x + cameraDistance * sinP * Math.sin(azimuth),
+        target.y + cameraDistance * Math.cos(polar),
+        target.z + cameraDistance * sinP * Math.cos(azimuth)
+      );
+      camera.lookAt(target);
+      camera.zoom = zoom;
+      camera.updateProjectionMatrix();
+    }
+
+    function resize() {
+      const aspect = innerWidth / innerHeight;
+      const frustum = 20.5;
+      camera.left = -frustum * aspect / 2;
+      camera.right = frustum * aspect / 2;
+      camera.top = frustum / 2;
+      camera.bottom = -frustum / 2;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    }
+    addEventListener('resize', resize);
+    resize();
+    updateCamera();
+
+    scene.add(new THREE.HemisphereLight(0xeaf6ff, 0x71845a, 2.05));
+
+    const sun = new THREE.DirectionalLight(0xfff4d9, 3.2);
+    sun.position.set(-13, 24, 15);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -28;
+    sun.shadow.camera.right = 28;
+    sun.shadow.camera.top = 28;
+    sun.shadow.camera.bottom = -28;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 72;
+    sun.shadow.normalBias = 0.035;
+    sun.shadow.bias = -0.00015;
+    scene.add(sun);
+
+    const fill = new THREE.DirectionalLight(0xc7e5ff, 0.58);
+    fill.position.set(15, 10, -15);
+    scene.add(fill);
+
+    // Procedural textures
+    function makeTexture(draw, size = 256) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      draw(ctx, size);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return texture;
+    }
+
+    // Strongly saturated navy tiles with legible staggered courses and highlights.
+    const roofTexture = makeTexture((ctx, s) => {
+      ctx.fillStyle = '#071a35';
+      ctx.fillRect(0, 0, s, s);
+      const rowHeight = 20;
+      for (let y = 0, row = 0; y < s; y += rowHeight, row++) {
+        for (let x = -24; x < s; x += 32) {
+          const offset = row % 2 ? 16 : 0;
+          const px = x + offset;
+          const g = ctx.createLinearGradient(px, y, px + 30, y + rowHeight - 2);
+          g.addColorStop(0, '#21477b');
+          g.addColorStop(.24, '#153761');
+          g.addColorStop(.76, '#0d294f');
+          g.addColorStop(1, '#081d3a');
+          ctx.fillStyle = g;
+          ctx.fillRect(px + 1, y + 1, 30, rowHeight - 2);
+          ctx.strokeStyle = 'rgba(106,145,190,.46)';
+          ctx.lineWidth = 1.15;
+          ctx.beginPath();
+          ctx.moveTo(px + 1, y + rowHeight - 1);
+          ctx.lineTo(px + 31, y + rowHeight - 1);
+          ctx.stroke();
+          ctx.strokeStyle = 'rgba(3,11,25,.48)';
+          ctx.beginPath();
+          ctx.moveTo(px + 31, y + 1);
+          ctx.lineTo(px + 31, y + rowHeight - 1);
+          ctx.stroke();
+        }
+      }
+      for (let i = 0; i < 1100; i++) {
+        ctx.fillStyle = Math.random() > .5
+          ? 'rgba(165,195,235,.045)'
+          : 'rgba(0,0,0,.06)';
+        ctx.fillRect(Math.random() * s, Math.random() * s, 1, 1);
+      }
+    });
+    roofTexture.repeat.set(5.2, 3.5);
+
+    const pavingTexture = makeTexture((ctx, s) => {
+      ctx.fillStyle = '#777a75';
+      ctx.fillRect(0, 0, s, s);
+      for (let row = 0; row < 8; row++) {
+        for (let col = -1; col < 5; col++) {
+          const x = col * 64 + (row % 2) * 32;
+          const y = row * 32;
+          const v = 105 + Math.floor(Math.random() * 28);
+          ctx.fillStyle = `rgb(${v},${v + 2},${v - 3})`;
+          ctx.fillRect(x + 2, y + 2, 60, 28);
+        }
+      }
+      ctx.fillStyle = 'rgba(35,40,37,.15)';
+      for (let i = 0; i < 1600; i++) {
+        ctx.fillRect(Math.random() * s, Math.random() * s, 1, 1);
+      }
+    });
+    pavingTexture.repeat.set(5, 5);
+
+    const gravelTexture = makeTexture((ctx, s) => {
+      ctx.fillStyle = '#9b9b8e';
+      ctx.fillRect(0, 0, s, s);
+      for (let i = 0; i < 3000; i++) {
+        const g = 110 + Math.floor(Math.random() * 90);
+        ctx.fillStyle = `rgba(${g},${g},${g - 8},.75)`;
+        ctx.fillRect(Math.random() * s, Math.random() * s, 2, 1.5);
+      }
+    });
+    gravelTexture.repeat.set(8, 8);
+
+    const waterTexture = makeTexture((ctx, s) => {
+      const gradient = ctx.createLinearGradient(0, 0, s, s);
+      gradient.addColorStop(0, '#008dcc');
+      gradient.addColorStop(.5, '#18c7ef');
+      gradient.addColorStop(1, '#0079c5');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, s, s);
+      ctx.strokeStyle = 'rgba(225,252,255,.48)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 35; i++) {
+        const y = Math.random() * s;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.bezierCurveTo(s * .3, y + 7, s * .7, y - 8, s, y + 2);
+        ctx.stroke();
+      }
+    });
+    waterTexture.repeat.set(2, 4);
+
+    // Materials and geometry helpers
+    const mat = {
+      white: new THREE.MeshStandardMaterial({ color: 0xf4f1e9, roughness: .73 }),
+      trim: new THREE.MeshStandardMaterial({ color: 0xfaf9f4, roughness: .58 }),
+      roof: new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: roofTexture,
+        roughness: .53,
+        metalness: .12
+      }),
+      glass: new THREE.MeshStandardMaterial({ color: 0x203b46, roughness: .16, metalness: .35 }),
+      dark: new THREE.MeshStandardMaterial({ color: 0x1c2a31, roughness: .45, metalness: .15 }),
+      stone: new THREE.MeshStandardMaterial({ map: pavingTexture, roughness: .96 }),
+      paleStone: new THREE.MeshStandardMaterial({ color: 0xd9d3c3, roughness: .91 }),
+      deckStone: new THREE.MeshStandardMaterial({ color: 0xd6cfbf, roughness: .94 }),
+      gravel: new THREE.MeshStandardMaterial({ map: gravelTexture, roughness: 1 }),
+      grass: new THREE.MeshStandardMaterial({ color: 0x66834f, roughness: 1 }),
+      hedge: new THREE.MeshStandardMaterial({ color: 0x385c38, roughness: .95 }),
+      leaf: new THREE.MeshStandardMaterial({ color: 0x4f7942, roughness: .95 }),
+      leafLight: new THREE.MeshStandardMaterial({ color: 0x719252, roughness: .95 }),
+      trunk: new THREE.MeshStandardMaterial({ color: 0x68513d, roughness: 1 }),
+      flowerRed: new THREE.MeshStandardMaterial({ color: 0xd51f35, roughness: .82 }),
+      flowerPink: new THREE.MeshStandardMaterial({ color: 0xef5a8d, roughness: .82 }),
+      soil: new THREE.MeshStandardMaterial({ color: 0x665044, roughness: 1 }),
+      whiteCar: new THREE.MeshStandardMaterial({ color: 0xf3f3ef, roughness: .22, metalness: .38 }),
+      tire: new THREE.MeshStandardMaterial({ color: 0x111718, roughness: .9 }),
+      poolBasin: new THREE.MeshStandardMaterial({ color: 0x087b9f, roughness: .35 }),
+      water: new THREE.MeshPhysicalMaterial({
+        map: waterTexture,
+        color: 0xffffff,
+        emissive: 0x003f68,
+        emissiveIntensity: .08,
+        roughness: .14,
+        metalness: .08,
+        transmission: .04,
+        transparent: true,
+        opacity: .98,
+        clearcoat: .92,
+        clearcoatRoughness: .12,
+        side: THREE.DoubleSide
+      })
+    };
+
+    function box(w, h, d, material, x = 0, y = 0, z = 0, parent = scene, shadow = true) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = shadow;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    }
+
+    function cylinder(rt, rb, h, material, x, y, z, parent = scene, segments = 16) {
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, segments), material);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    }
+
+    function sphere(r, material, x, y, z, parent = scene, detail = 1) {
+      const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(r, detail), material);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    }
+
+    // Terrain, road, drive and patio
+    box(70, .2, 60, mat.grass, 0, -.22, 0, scene, false);
+    box(34, .14, 4.6, new THREE.MeshStandardMaterial({ color: 0x444b4c, roughness: 1 }), 0, -.06, -10.1);
+    box(33, .14, 1.15, mat.stone, 0, .01, -7.45);
+    box(31, .13, .14, new THREE.MeshStandardMaterial({ color: 0xd9d8cb }), 0, .08, -10.1);
+
+    for (let x = -15; x < 16; x += 3.2) {
+      box(1.55, .015, .1, new THREE.MeshBasicMaterial({ color: 0xe6e1cc }), x, .02, -10.1, scene, false);
+    }
+
+    box(25.5, .12, 18.8, mat.gravel, -.4, -.01, .2, scene, false);
+    box(11.8, .13, 11.8, mat.stone, -5.0, .07, -.2, scene, false);
+    box(3.0, .12, 18.0, mat.gravel, 10.25, .025, .2, scene, false);
+
+    // Main villa
+    const villa = new THREE.Group();
+    villa.position.set(-2.8, 0, -.25);
+    scene.add(villa);
+
+    box(8.4, .32, 6.4, mat.stone, 0, .18, 0, villa);
+    box(8, 2.62, 6, mat.white, 0, 1.58, 0, villa);
+    box(7.92, 2.38, 5.92, mat.white, 0, 4.04, 0, villa);
+    box(8.12, .13, 6.08, mat.trim, 0, 2.93, 0, villa);
+    box(8.13, .46, 6.08, mat.dark, 0, .5, 0, villa);
+
+    function addWindow(x, y, z, w, h, rotation = 0, parent = villa) {
+      const g = new THREE.Group();
+      g.position.set(x, y, z);
+      g.rotation.y = rotation;
+      parent.add(g);
+      box(w, h, .11, mat.dark, 0, 0, 0, g);
+      box(w * .78, h * .72, .13, mat.glass, 0, 0, .04, g);
+      box(.065, h * .78, .16, mat.trim, 0, 0, .075, g);
+      box(w * .82, .065, .16, mat.trim, 0, 0, .075, g);
+      box(w + .16, .13, .22, mat.trim, 0, -h * .52, .015, g);
+      return g;
+    }
+
+    addWindow(-2.75, 4.12, 3.01, 1.05, 1.55);
+    addWindow(-.85, 4.12, 3.01, 1.05, 1.55);
+    addWindow(1.03, 4.12, 3.01, 1.05, 1.55);
+    addWindow(-2.85, 1.64, 3.01, 1.18, 1.45);
+    addWindow(1.12, 1.64, 3.01, 1.35, 1.45);
+
+    box(1.3, 2.45, .16, mat.dark, 0, 1.4, 3.04, villa);
+    box(1.08, 2.24, .18, mat.glass, 0, 1.39, 3.11, villa);
+    box(.07, 2.25, .22, mat.trim, 0, 1.39, 3.12, villa);
+    box(.13, .13, .12, mat.trim, .36, 1.35, 3.2, villa);
+    box(2.0, .18, .9, mat.trim, 0, .26, 3.34, villa);
+
+    addWindow(4.05, 4.08, -1.65, 1.12, 1.6, Math.PI / 2);
+    addWindow(4.05, 4.08, .7, 1.12, 1.6, Math.PI / 2);
+    addWindow(4.05, 1.68, -1.65, 1.1, 1.45, Math.PI / 2);
+    addWindow(4.05, 1.68, .7, 1.1, 1.45, Math.PI / 2);
+    addWindow(-4.05, 4.08, -.9, 1.1, 1.55, -Math.PI / 2);
+    addWindow(-4.05, 1.68, -.9, 1.05, 1.45, -Math.PI / 2);
+
+    // Wider covered porch with white columns.
+    box(7.2, .16, 2.05, mat.stone, 0, .15, 3.75, villa);
+    const porchRoof = box(7.45, .18, 2.25, mat.roof, 0, 3.12, 3.72, villa);
+    porchRoof.rotation.x = -.055;
+    box(7.55, .13, .15, mat.trim, 0, 3.18, 4.8, villa);
+
+    for (const x of [-3.15, -1.05, 1.05, 3.15]) {
+      cylinder(.11, .14, 2.72, mat.trim, x, 1.56, 4.58, villa, 20);
+      box(.3, .12, .3, mat.trim, x, .27, 4.58, villa);
+      box(.3, .12, .3, mat.trim, x, 2.86, 4.58, villa);
+    }
+
+    // Wide, deep entrance stair spanning most of the porch facade.
+    for (let i = 0; i < 6; i++) {
+      const step = box(
+        7.18 - i * .08,
+        .18,
+        .72 + i * .16,
+        mat.paleStone,
+        0,
+        .07 + i * .105,
+        4.76 + i * .19,
+        villa
+      );
+      step.castShadow = true;
+      step.receiveShadow = true;
+    }
+
+    for (const x of [-1.0, 1.0]) {
+      box(.14, .34, .18, mat.dark, x, 2.42, 3.12, villa);
+      box(.09, .18, .2, new THREE.MeshStandardMaterial({
+        color: 0xffe3a6,
+        emissive: 0xffc56b,
+        emissiveIntensity: .25
+      }), x, 2.42, 3.23, villa);
+    }
+
+    // Four-sided hipped tiled roof with steep, distinct sloping planes.
+    function roofFace(points, uvs) {
+      const geometry = new THREE.BufferGeometry();
+      const positions = [];
+      const uv = [];
+      for (let i = 1; i < points.length - 1; i++) {
+        positions.push(...points[0], ...points[i], ...points[i + 1]);
+        uv.push(...uvs[0], ...uvs[i], ...uvs[i + 1]);
+      }
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, mat.roof);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      villa.add(mesh);
+      return mesh;
+    }
+
+    const eaveY = 5.25;
+    const ridgeY = 8.2;
+    const FL = [-4.55, eaveY, 3.5], FR = [4.55, eaveY, 3.5];
+    const BL = [-4.55, eaveY, -3.5], BR = [4.55, eaveY, -3.5];
+    const RL = [-2.15, ridgeY, 0], RR = [2.15, ridgeY, 0];
+
+    // Correct outward-facing winding keeps every plane visible and correctly lit.
+    roofFace([FL, FR, RR, RL], [[0,0],[1,0],[.65,1],[.35,1]]);
+    roofFace([BL, RL, RR, BR], [[0,0],[.35,1],[.65,1],[1,0]]);
+    roofFace([BL, FL, RL], [[0,0],[0,1],[1,1],[1,0]]);
+    roofFace([BR, RR, FR], [[0,0],[1,1],[1,0]]);
+
+    box(9.12, .16, .16, mat.trim, 0, eaveY, 3.5, villa);
+    box(9.12, .16, .16, mat.trim, 0, eaveY, -3.5, villa);
+    box(.16, .16, 7, mat.trim, -4.55, eaveY, 0, villa);
+    box(.16, .16, 7, mat.trim, 4.55, eaveY, 0, villa);
+    box(4.55, .19, .24, mat.roof, 0, ridgeY + .045, 0, villa);
+
+    function dormer(x, z, rotation = 0) {
+      const g = new THREE.Group();
+      g.position.set(x, 6.72, z);
+      g.rotation.y = rotation;
+      villa.add(g);
+      box(1.45, 1.48, .46, mat.white, 0, 0, 0, g);
+      const cap = box(1.72, .16, .82, mat.roof, 0, .78, .04, g);
+      cap.rotation.x = -.24;
+      addWindow(0, .02, .26, .78, .92, 0, g);
+      box(1.55, .13, .13, mat.trim, 0, -.75, .19, g);
+    }
+    dormer(-1.65, 1.82);
+    dormer(1.65, 1.82);
+    dormer(3.6, .65, Math.PI / 2);
+
+    box(.78, 2.25, .76, mat.white, -2.95, 7.45, -.75, villa);
+    box(.92, .18, .9, mat.dark, -2.95, 8.65, -.75, villa);
+    box(.52, .16, .52, mat.dark, -2.95, 8.82, -.75, villa);
+
+    // Large long rectangular swimming pool, about one-third of the usable garden.
+    const poolX = 5.65;
+    const poolZ = 1.35;
+    const poolW = 5.25;
+    const poolD = 10.1;
+    const poolLeft = poolX - poolW / 2;
+    const poolRight = poolX + poolW / 2;
+    const poolFront = poolZ + poolD / 2;
+    const poolBack = poolZ - poolD / 2;
+
+    box(poolW, .28, poolD, mat.poolBasin, poolX, -.08, poolZ, scene, false);
+    box(.12, .34, poolD, mat.poolBasin, poolLeft + .06, .04, poolZ, scene, false);
+    box(.12, .34, poolD, mat.poolBasin, poolRight - .06, .04, poolZ, scene, false);
+
+    // Broad light-stone deck surrounding a true recessed pool opening.
+    box(1.55, .18, poolD + 1.9, mat.deckStone, poolLeft - .775, .12, poolZ);
+    box(.85, .18, poolD + 1.9, mat.deckStone, poolRight + .425, .12, poolZ);
+    box(poolW + 2.4, .18, .95, mat.deckStone, poolX, .12, poolBack - .475);
+    box(poolW + 2.4, .18, .95, mat.deckStone, poolX, .12, poolFront + .475);
+
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(poolW - .16, poolD - .16), mat.water);
+    water.rotation.x = -Math.PI / 2;
+    water.position.set(poolX, .105, poolZ);
+    water.receiveShadow = true;
+    scene.add(water);
+
+    box(.2, .14, poolD + .4, mat.paleStone, poolLeft - .1, .2, poolZ);
+    box(.2, .14, poolD + .4, mat.paleStone, poolRight + .1, .2, poolZ);
+    box(poolW + .4, .14, .2, mat.paleStone, poolX, .2, poolBack - .1);
+    box(poolW + .4, .14, .2, mat.paleStone, poolX, .2, poolFront + .1);
+
+    for (const x of [poolLeft - .12, poolLeft - .55]) {
+      const rail = cylinder(
+        .035, .035, 1.05,
+        new THREE.MeshStandardMaterial({ color: 0xc9d1d2, metalness: .75, roughness: .25 }),
+        x, .65, poolZ + 1.2
+      );
+      rail.rotation.z = x < poolLeft ? -.12 : .12;
+    }
+
+    function lounger(x, z, rotation = 0) {
+      const g = new THREE.Group();
+      g.position.set(x, .26, z);
+      g.rotation.y = rotation;
+      scene.add(g);
+      const cushionMat = new THREE.MeshStandardMaterial({ color: 0xe9dfc9, roughness: .8 });
+      box(.85, .12, 1.95, cushionMat, 0, .35, 0, g);
+      const back = box(.85, .1, .78, cushionMat, 0, .55, -.68, g);
+      back.rotation.x = .65;
+      for (const xx of [-.32, .32]) {
+        for (const zz of [-.72, .72]) box(.06, .35, .06, mat.dark, xx, .16, zz, g);
+      }
+    }
+    lounger(4.35, 6.88);
+    lounger(5.65, 6.88);
+
+    const float = new THREE.Mesh(
+      new THREE.TorusGeometry(.36, .13, 12, 32),
+      new THREE.MeshStandardMaterial({ color: 0xff7a32, roughness: .48 })
+    );
+    float.rotation.x = Math.PI / 2;
+    float.position.set(poolX + .85, .3, poolZ - .8);
+    float.castShadow = true;
+    scene.add(float);
+
+    // Hedges, broad red and pink planting borders, gravel and paving.
+    function hedge(w, d, x, z, y = .3) {
+      return box(w, .58, d, mat.hedge, x, y, z);
+    }
+
+    hedge(.44, 11.0, 10.55, 1.1);
+    hedge(4.0, .44, 5.65, -5.05);
+    hedge(.48, 5.6, -6.55, .3);
+    hedge(3.2, .48, -4.85, 3.55);
+
+    function flower(x, z, color, scale = 1) {
+      const stem = cylinder(.018, .022, .38 * scale, mat.hedge, x, .38 * scale, z, scene, 6);
+      stem.castShadow = false;
+      const blossom = sphere(.125 * scale, color, x, .6 * scale, z, scene, 1);
+      blossom.scale.y = .82;
+      blossom.castShadow = false;
+    }
+
+    // Expanded low border running almost the full length of the pool.
+    box(.9, .14, 11.2, mat.soil, 9.25, .12, poolZ, scene, false);
+    for (let i = 0; i < 43; i++) {
+      const z = -3.85 + i * .26;
+      flower(8.98, z, i % 3 === 0 ? mat.flowerPink : mat.flowerRed, .92 + (i % 4) * .08);
+      flower(9.52, z + .07, i % 2 ? mat.flowerPink : mat.flowerRed, .8);
+    }
+
+    // Clearly defined red and pink bed across the far end of the garden.
+    box(5.1, .14, .78, mat.soil, 5.55, .12, -4.25, scene, false);
+    for (let i = 0; i < 24; i++) {
+      const x = 3.2 + i * .21;
+      flower(x, -4.25, i % 2 ? mat.flowerPink : mat.flowerRed, .95);
+      flower(x + .08, -4.03, i % 3 ? mat.flowerRed : mat.flowerPink, .72);
+    }
+
+    // Continuous low flower border beside the house.
+    box(3.25, .12, .5, mat.soil, -4.9, .12, 3.64, scene, false);
+    for (let i = 0; i < 16; i++) {
+      const x = -6.05 + i * .22;
+      flower(x, 3.64, i % 2 ? mat.flowerRed : mat.flowerPink, .9);
+    }
+
+    box(1.25, .32, .62, mat.trim, -4.4, .3, 3.55, scene);
+    box(1.25, .32, .62, mat.trim, 4.4, .3, 3.55, scene);
+    for (let i = 0; i < 7; i++) {
+      flower(-4.85 + i * .15, 3.55, i % 2 ? mat.flowerPink : mat.flowerRed, .76);
+      flower(3.85 + i * .18, 3.55, i % 2 ? mat.flowerRed : mat.flowerPink, .76);
+    }
+
+    box(2.5, .14, 1.15, mat.stone, 1.45, .09, 2.15, scene, false);
+    box(2.5, .14, 1.15, mat.stone, 1.45, .09, 4.15, scene, false);
+
+    // Boundary wall and metal fencing
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0xb4b1a5, roughness: .94 });
+    const metal = new THREE.MeshStandardMaterial({ color: 0x656d6b, roughness: .43, metalness: .65 });
+
+    box(5.4, .72, .35, wallMat, -5.45, .38, 7.95);
+    box(4.0, .72, .35, wallMat, 8.75, .38, 7.95);
+
+    function fenceLine(x1, z1, x2, z2, height = 1.65, spacing = .36) {
+      const length = Math.hypot(x2 - x1, z2 - z1);
+      const count = Math.floor(length / spacing);
+      const angle = Math.atan2(z2 - z1, x2 - x1);
+      for (let i = 0; i <= count; i++) {
+        const t = i / count;
+        const x = THREE.MathUtils.lerp(x1, x2, t);
+        const z = THREE.MathUtils.lerp(z1, z2, t);
+        box(.035, height, .035, metal, x, height / 2, z);
+        if (i < count) {
+          const nx = THREE.MathUtils.lerp(x1, x2, (i + .5) / count);
+          const nz = THREE.MathUtils.lerp(z1, z2, (i + .5) / count);
+          const bar = box(.025, height * .93, .025, metal, nx, height / 2, nz);
+          bar.rotation.y = angle;
+        }
+      }
+      const rail = box(length, .055, .055, metal, (x1 + x2) / 2, height - .05, (z1 + z2) / 2);
+      rail.rotation.y = -angle;
+      const lower = box(length, .04, .04, metal, (x1 + x2) / 2, .22, (z1 + z2) / 2);
+      lower.rotation.y = -angle;
+    }
+
+    fenceLine(-9.6, -7.8, 5.7, -7.8);
+    fenceLine(8.0, -7.8, 11.1, -7.8);
+    fenceLine(11.1, -7.8, 11.1, 7.7);
+    fenceLine(11.1, 7.7, 8.8, 7.7);
+
+    box(.22, 1.9, .22, mat.dark, 5.85, .95, -7.8);
+    box(.22, 1.9, .22, mat.dark, 7.85, .95, -7.8);
+    box(3.8, .11, 6.2, mat.gravel, 7.1, .06, -4.55);
+
+    // Cars
+    function createCar() {
+      const g = new THREE.Group();
+      box(1.72, .58, 3.95, mat.whiteCar, 0, .62, 0, g);
+      box(1.78, .18, 3.2, mat.whiteCar, 0, .43, 0, g);
+      box(1.48, .62, 2.0, mat.glass, 0, 1.12, -.18, g);
+      box(1.52, .08, 1.55, mat.whiteCar, 0, 1.45, -.25, g);
+      box(1.52, .08, .82, mat.whiteCar, 0, 1.45, .9, g);
+      box(1.55, .12, .1, mat.whiteCar, 0, .88, 1.96, g);
+      box(1.55, .12, .1, mat.whiteCar, 0, .88, -1.96, g);
+
+      for (const x of [-.86, .86]) {
+        for (const z of [-1.22, 1.22]) {
+          const wheel = cylinder(.36, .36, .22, mat.tire, x, .42, z, g, 20);
+          wheel.rotation.z = Math.PI / 2;
+          const hub = cylinder(.16, .16, .235, metal, x * 1.005, .42, z, g, 16);
+          hub.rotation.z = Math.PI / 2;
+        }
+      }
+      for (const x of [-.56, .56]) {
+        box(.34, .13, .05, new THREE.MeshStandardMaterial({
+          color: 0xfff1bd, emissive: 0xffd97a, emissiveIntensity: .4
+        }), x, .73, 2.0, g);
+        box(.3, .12, .05, new THREE.MeshStandardMaterial({
+          color: 0x8c1820, emissive: 0x5b080c, emissiveIntensity: .2
+        }), x, .74, -2.0, g);
+      }
+      return g;
+    }
+
+    // Parked clear of the pool and away from trees.
+    const drivewayCar = createCar();
+    drivewayCar.position.set(7.45, .12, -5.65);
+    drivewayCar.rotation.y = Math.PI;
+    scene.add(drivewayCar);
+
+    const roadCar = createCar();
+    roadCar.position.set(7.5, .08, -10.05);
+    roadCar.rotation.y = Math.PI / 2;
+    scene.add(roadCar);
+
+    // Trees and shrubs
+    function tree(x, z, scale = 1, light = false) {
+      const g = new THREE.Group();
+      g.position.set(x, 0, z);
+      g.scale.setScalar(scale);
+      scene.add(g);
+      cylinder(.15, .23, 2.8, mat.trunk, 0, 1.4, 0, g, 10);
+      const leafMat = light ? mat.leafLight : mat.leaf;
+      const clusters = [
+        [0, 3.45, 0, 1.2],
+        [-.65, 3.05, .15, .9],
+        [.62, 3.1, -.18, .95],
+        [.05, 3.05, -.72, .82],
+        [-.18, 3.85, .25, .82]
+      ];
+      clusters.forEach((c, i) => {
+        const leaf = sphere(c[3], leafMat, c[0], c[1], c[2], g, 1);
+        leaf.scale.y = 1.08 + (i % 2) * .12;
+      });
+      return g;
+    }
+
+    // Trees remain around the perimeter so the entrance, pool, and cars stay visible.
+    const treePositions = [
+      [-11,-5,1.3], [-10,-.8,1.15], [-10,3.5,1.0], [-10.8,6.6,.95],
+      [-7.8,-12.8,1.35], [-2.8,-13.2,1.4], [2.2,-13.4,1.3],
+      [12.6,-13.1,1.2], [14,-8.2,1.35], [14,-3.6,1.2], [14,1.6,1.3],
+      [14,6.7,1.2], [9.8,10.5,1.15], [4.2,11,1.25], [-2.1,11.4,1.4],
+      [-7.3,10.4,1.15], [-14,8.5,1.45], [-15,1.5,1.4], [-14,-7,1.35]
+    ];
+    treePositions.forEach((p, i) => tree(p[0], p[1], p[2], i % 4 === 0));
+
+    tree(-11.6, 4.8, .72, true);
+    tree(-6.0, -6.25, .78, true);
+
+    // Low shrubs are restricted to the outer corners, leaving the porch unobstructed.
+    for (let i = 0; i < 5; i++) {
+      sphere(.34, i % 3 ? mat.leafLight : mat.hedge, -9.4 + i * .58, .48, 6.45, scene, 1);
+    }
+    for (let i = 0; i < 4; i++) {
+      sphere(.32, i % 2 ? mat.hedge : mat.leafLight, 9.85 + i * .34, .48, -6.2, scene, 1);
+    }
+
+    // Small site details
+    for (const x of [-7.1, 7.1]) {
+      cylinder(.07, .09, .66, mat.dark, x, .35, 7.3, scene, 10);
+      cylinder(.09, .09, .12, new THREE.MeshStandardMaterial({
+        color: 0xffe4a4, emissive: 0xffc96d, emissiveIntensity: .25
+      }), x, .72, 7.3, scene, 10);
+    }
+
+    cylinder(.62, .62, .08, mat.trim, -6.2, .76, 4.7, scene, 24);
+    cylinder(.07, .1, .72, mat.dark, -6.2, .4, 4.7, scene, 12);
+    for (const angle of [0, Math.PI * .66, Math.PI * 1.33]) {
+      const chair = new THREE.Group();
+      chair.position.set(-6.2 + Math.cos(angle) * 1.05, .35, 4.7 + Math.sin(angle) * 1.05);
+      chair.rotation.y = -angle;
+      scene.add(chair);
+      box(.52, .08, .52, mat.trim, 0, .38, 0, chair);
+      box(.52, .55, .07, mat.trim, 0, .65, -.22, chair);
+      for (const xx of [-.2, .2]) {
+        for (const zz of [-.2, .2]) box(.05, .4, .05, mat.dark, xx, .18, zz, chair);
+      }
+    }
+
+    // Direct camera controls — no external controls module
+    let dragging = false;
+    let panning = false;
+    let previousX = 0;
+    let previousY = 0;
+
+    renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+    renderer.domElement.addEventListener('pointerdown', e => {
+      dragging = true;
+      panning = e.button === 2 || e.shiftKey;
+      previousX = e.clientX;
+      previousY = e.clientY;
+      renderer.domElement.setPointerCapture(e.pointerId);
+    });
+
+    renderer.domElement.addEventListener('pointermove', e => {
+      if (!dragging) return;
+      const dx = e.clientX - previousX;
+      const dy = e.clientY - previousY;
+      previousX = e.clientX;
+      previousY = e.clientY;
+
+      if (panning) {
+        const scale = 0.018 / zoom;
+        const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+        const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+        target.addScaledVector(right, -dx * scale);
+        target.addScaledVector(up, dy * scale);
+        target.x = THREE.MathUtils.clamp(target.x, -10, 10);
+        target.z = THREE.MathUtils.clamp(target.z, -9, 9);
+      } else {
+        azimuth -= dx * .006;
+        polar = THREE.MathUtils.clamp(polar - dy * .005, .25, 1.42);
+      }
+      updateCamera();
+    });
+
+    function endDrag(e) {
+      dragging = false;
+      panning = false;
+      if (renderer.domElement.hasPointerCapture(e.pointerId)) {
+        renderer.domElement.releasePointerCapture(e.pointerId);
+      }
+    }
+    renderer.domElement.addEventListener('pointerup', endDrag);
+    renderer.domElement.addEventListener('pointercancel', endDrag);
+
+    renderer.domElement.addEventListener('wheel', e => {
+      e.preventDefault();
+      zoom = THREE.MathUtils.clamp(zoom * Math.exp(-e.deltaY * .001), .55, 2.1);
+      updateCamera();
+    }, { passive: false });
+
+    document.querySelectorAll('button').forEach(button => {
+      button.addEventListener('click', () => {
+        const view = button.dataset.view;
+        if (view === 'iso' || view === 'reset') {
+          azimuth = .7;
+          polar = .79;
+          zoom = 1;
+          target.set(.6, 1.7, -.15);
+        }
+        if (view === 'front') {
+          azimuth = 0;
+          polar = 1.12;
+          zoom = 1.1;
+          target.set(-1.6, 1.7, .4);
+        }
+        if (view === 'top') {
+          azimuth = .001;
+          polar = .22;
+          zoom = 1;
+          target.set(.7, 0, .2);
+        }
+        updateCamera();
+      });
+    });
+
+    renderer.domElement.addEventListener('dblclick', () => {
+      azimuth = .7;
+      polar = .79;
+      zoom = 1;
+      target.set(.6, 1.7, -.15);
+      updateCamera();
+    });
+
+    // Animation
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+      mat.water.map.offset.x = Math.sin(t * .07) * .012;
+      mat.water.map.offset.y = t * .008;
+      float.position.y = .3 + Math.sin(t * 1.6) * .025;
+      float.rotation.z = Math.sin(t * .8) * .03;
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

@@ -77,6 +77,15 @@ SCENES = [
         "meta": "29 KB · 0 lỗi console",
         "note": "Chạy thử khi dựng tool: scene bị tối quá. Cổng chất lượng tự động đã bắt được trường hợp này.",
     },
+    {
+        "file": "villa.html",
+        "src": "examples/villa.html",
+        "shot": "examples/shot-villa.png",
+        "title": "Biệt thự + hồ bơi",
+        "tag": "vision",
+        "meta": "9/10 · 0 lỗi console · 9.2 phút · $0.042",
+        "note": "Dựng từ ảnh phối cảnh: mái ngói xanh, hồ bơi dài, vườn tiểu cảnh, 2 xe, góc nhìn aerial. Có nút Aerial/Front/Plan để xoay.",
+    },
 ]
 
 PAGE = """<!doctype html>
