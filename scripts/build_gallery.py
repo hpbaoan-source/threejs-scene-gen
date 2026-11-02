@@ -162,6 +162,9 @@ def main():
         shutil.rmtree(DOCS)
     os.makedirs(os.path.join(DOCS, "scenes"))
     os.makedirs(os.path.join(DOCS, "shots"))
+    # .nojekyll: GitHub Pages must not run Jekyll on the gallery
+    with open(os.path.join(DOCS, ".nojekyll"), "w", encoding="utf-8") as fh:
+        fh.write("")
 
     cards = []
     for scene in SCENES:
