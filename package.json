@@ -1,0 +1,15 @@
+{
+  "name": "threejs-scene-gen",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Generate Three.js scenes from a text prompt, with a render-review-repair loop.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "lint": "node scripts/render_scene.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}

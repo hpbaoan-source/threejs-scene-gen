@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voxel Floating Island</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #eee2d4;
+      font-family: system-ui, sans-serif;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      cursor: grab;
+    }
+
+    canvas:active {
+      cursor: grabbing;
+    }
+
+    #hint {
+      position: fixed;
+      left: 18px;
+      bottom: 16px;
+      padding: 9px 12px;
+      border-radius: 9px;
+      color: #5d3628;
+      background: rgba(255, 250, 244, 0.72);
+      border: 1px solid rgba(93, 54, 40, 0.12);
+      font-size: 12px;
+      pointer-events: none;
+      backdrop-filter: blur(6px);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="hint">
+    Drag to orbit · Shift/right-drag to pan · Scroll to zoom · Double-click to reset
+  </div>
+
+  <script type="module">
+    import * as THREE from
+      "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js";
+
+    // ------------------------------------------------------------
+    // Renderer and scene
+    // ------------------------------------------------------------
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: false,
+      powerPreference: "high-performance"
+    });
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    document.body.prepend(renderer.domElement);
+    renderer.domElement.setAttribute("aria-label", "Interactive voxel floating island");
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color("#eee2d4");
+    scene.fog = new THREE.Fog("#eee2d4", 27, 48);
+
+    const camera = new THREE.PerspectiveCamera(
+      36,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      100
+    );
+
+    const hemisphere = new THREE.HemisphereLight("#fff7df", "#6d2942", 2.25);
+    scene.add(hemisphere);
+
+    const sun = new THREE.DirectionalLight("#fff0ce", 4.2);
+    sun.position.set(-8, 15, 10);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -13;
+    sun.shadow.camera.right = 13;
+    sun.shadow.camera.top = 15;
+    sun.shadow.camera.bottom = -13;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 40;
+    sun.shadow.bias = -0.00035;
+    sun.shadow.normalBias = 0.035;
+    scene.add(sun);
+
+    const rim = new THREE.DirectionalLight("#ff9c4a", 1.15);
+    rim.position.set(10, 7, -11);
+    scene.add(rim);
+
+    // ------------------------------------------------------------
+    // Deterministic random generator
+    // ------------------------------------------------------------
+
+    let randomSeed = 782341;
+
+    function random() {
+      randomSeed |= 0;
+      randomSeed = (randomSeed + 0x6d2b79f5) | 0;
+      let t = Math.imul(randomSeed ^ (randomSeed >>> 15), 1 | randomSeed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+
+    function range(min, max) {
+      return min + random() * (max - min);
+    }
+
+    function pick(items) {
+      return items[Math.floor(random() * items.length)];
+    }
+
+    // ------------------------------------------------------------
+    // Voxel batching
+    // ------------------------------------------------------------
+
+    const solidVoxels = [];
+    const waterVoxels = [];
+    const foamVoxels = [];
+
+    function addVoxel(
+      list,
+      x,
+      y,
+      z,
+      sx,
+      sy,
+      sz,
+      color
+    ) {
+      list.push({
+        x,
+        y,
+        z,
+        sx,
+        sy,
+        sz,
+        color
+      });
+    }
+
+    function addSolid(x, y, z, sx, sy, sz, color) {
+      addVoxel(solidVoxels, x, y, z, sx, sy, sz, color);
+    }
+
+    function addWater(x, y, z, sx, sy, sz, color) {
+      addVoxel(waterVoxels, x, y, z, sx, sy, sz, color);
+    }
+
+    function addFoam(x, y, z, sx, sy, sz, color) {
+      addVoxel(foamVoxels, x, y, z, sx, sy, sz, color);
+    }
+
+    function createInstancedVoxels(voxels, material) {
+      const geometry = new THREE.BoxGeometry(1, 1, 1);
+      const mesh = new THREE.InstancedMesh(
+        geometry,
+        material,
+        voxels.length
+      );
+
+      const dummy = new THREE.Object3D();
+      const color = new THREE.Color();
+
+      for (let i = 0; i < voxels.length; i++) {
+        const voxel = voxels[i];
+
+        dummy.position.set(voxel.x, voxel.y, voxel.z);
+        dummy.scale.set(voxel.sx, voxel.sy, voxel.sz);
+        dummy.updateMatrix();
+
+        mesh.setMatrixAt(i, dummy.matrix);
+
+        color.set(voxel.color);
+        mesh.setColorAt(i, color);
+      }
+
+      mesh.instanceMatrix.needsUpdate = true;
+
+      if (mesh.instanceColor) {
+        mesh.instanceColor.needsUpdate = true;
+      }
+
+      mesh.castShadow = material !== waterMaterial;
+      mesh.receiveShadow = true;
+
+      scene.add(mesh);
+      return mesh;
+    }
+
+    const solidMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.76,
+      metalness: 0,
+      flatShading: true
+    });
+
+    const waterMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.28,
+      metalness: 0.02,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+      flatShading: true,
+      emissive: "#063b4b",
+      emissiveIntensity: 0.12
+    });
+
+    const foamMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.5,
+      flatShading: true
+    });
+
+    // ------------------------------------------------------------
+    // Color palette
+    // ------------------------------------------------------------
+
+    const palette = {
+      grass: [
+        "#4f9c21",
+        "#5daf24",
+        "#438b1d",
+        "#67b82a"
+      ],
+      soil: [
+        "#a7652f",
+        "#b87531",
+        "#925024",
+        "#c08136"
+      ],
+      deepSoil: [
+        "#743024",
+        "#67272b",
+        "#572129",
+        "#81352d"
+      ],
+      trunk: [
+        "#5a2025",
+        "#6d2529",
+        "#76272a",
+        "#4b2025"
+      ],
+      orange: [
+        "#e44a09",
+        "#f05b0b",
+        "#d93d08",
+        "#f47713"
+      ],
+      redOrange: [
+        "#c93408",
+        "#d83e07",
+        "#b92c08"
+      ],
+      amber: [
+        "#f38a12",
+        "#f99a18",
+        "#e9780b"
+      ],
+      gold: [
+        "#f5ae27",
+        "#ffbd2f",
+        "#e89a16"
+      ],
+      water: [
+        "#18a9bd",
+        "#23b9c8",
+        "#1597af",
+        "#37c4d0"
+      ],
+      foam: [
+        "#c8f5ee",
+        "#e1fff8",
+        "#a8e9e6"
+      ]
+    };
+
+    // ------------------------------------------------------------
+    // Floating island
+    // ------------------------------------------------------------
+
+    const islandCells = [];
+    const edgeCells = [];
+
+    const gridCount = 21;
+    const gridSpacing = 0.46;
+    const gridOffset = ((gridCount - 1) * gridSpacing) / 2;
+
+    function roundedIslandValue(x, z) {
+      return (
+        Math.pow(Math.abs(x) / 4.65, 4) +
+        Math.pow(Math.abs(z) / 4.35, 4)
+      );
+    }
+
+    function streamX(z) {
+      return -0.9 + Math.sin((z + 0.8) * 0.7) * 0.55;
+    }
+
+    function isWaterCell(x, z) {
+      const inStream =
+        Math.abs(x - streamX(z)) < 0.48 &&
+        z > -4.0 &&
+        z < 4.05;
+
+      const pondDx = (x - 2.15) / 1.65;
+      const pondDz = (z + 0.55) / 1.15;
+      const inPond = pondDx * pondDx + pondDz * pondDz < 1;
+
+      return inStream || inPond;
+    }
+
+    const earthLayers = [
+      {
+        y: 0.04,
+        height: 0.30,
+        colors: palette.grass,
+        limit: 1.10
+      },
+      {
+        y: -0.27,
+        height: 0.38,
+        colors: palette.soil,
+        limit: 1.06
+      },
+      {
+        y: -0.67,
+        height: 0.40,
+        colors: palette.soil,
+        limit: 1.02
+      },
+      {
+        y: -1.10,
+        height: 0.42,
+        colors: palette.deepSoil,
+        limit: 0.98
+      },
+      {
+        y: -1.58,
+        height: 0.46,
+        colors: palette.deepSoil,
+        limit: 0.91
+      },
+      {
+        y: -2.10,
+        height: 0.50,
+        colors: palette.deepSoil,
+        limit: 0.83
+      },
+      {
+        y: -2.68,
+        height: 0.55,
+        colors: palette.deepSoil,
+        limit: 0.73
+      },
+      {
+        y: -3.30,
+        height: 0.62,
+        colors: palette.deepSoil,
+        limit: 0.60
+      },
+      {
+        y: -3.98,
+        height: 0.72,
+        colors: palette.deepSoil,
+        limit: 0.43
+      }
+    ];
+
+    for (let iz = 0; iz < gridCount; iz++) {
+      for (let ix = 0; ix < gridCount; ix++) {
+        const x = ix * gridSpacing - gridOffset;
+        const z = iz * gridSpacing - gridOffset;
+        const value = roundedIslandValue(x, z);
+
+        if (value > 1.08 + range(-0.07, 0.07)) {
+          continue;
+        }
+
+        islandCells.push({ x, z });
+
+        if (value > 0.62) {
+          edgeCells.push({ x, z });
+        }
+
+        earthLayers.forEach((layer, layerIndex) => {
+          const randomLimit = range(-0.08, 0.08);
+          const deepLimit = layer.limit - layerIndex * 0.012;
+
+          if (value > deepLimit + randomLimit) {
+            return;
+          }
+
+          const color = pick(layer.colors);
+          const jitter = range(-0.025, 0.025);
+
+          addSolid(
+            x + jitter,
+            layer.y + range(-0.025, 0.025),
+            z + jitter,
+            gridSpacing * 1.015,
+            layer.height,
+            gridSpacing * 1.015,
+            color
+          );
+        });
+
+        // Water lies just above the grassy voxel surface.
+        if (isWaterCell(x, z)) {
+          const waterColor = pick(palette.water);
+
+          addWater(
+            x,
+            0.235,
+            z,
+            gridSpacing * 0.94,
+            0.08,
+            gridSpacing * 0.94,
+            waterColor
+          );
+
+          if (random() > 0.72) {
+            addFoam(
+              x + range(-0.1, 0.1),
+              0.29,
+              z + range(-0.1, 0.1),
+              0.12,
+              0.035,
+              0.12,
+              pick(palette.foam)
+            );
+          }
+        }
+      }
+    }
+
+    // Soil drips hanging below the island rim.
+    edgeCells.forEach((cell) => {
+      if (random() > 0.42) {
+        return;
+      }
+
+      const length = Math.floor(range(1, 4));
+
+      for (let i = 0; i < length; i++) {
+        addSolid(
+          cell.x + range(-0.08, 0.08),
+          -0.35 - i * 0.33,
+          cell.z + range(-0.08, 0.08),
+          range(0.12, 0.22),
+          0.36,
+          range(0.12, 0.22),
+          pick(palette.deepSoil)
+        );
+      }
+    });
+
+    // ------------------------------------------------------------
+    // Waterfall
+    // ------------------------------------------------------------
+
+    const fallX = streamX(4.05);
+    const fallZ = 4.05;
+
+    for (let y = 0.05; y > -4.45; y -= 0.31) {
+      const width = 0.58 + random() * 0.12;
+
+      addWater(
+        fallX + range(-0.06, 0.06),
+        y,
+        fallZ + range(-0.03, 0.03),
+        width,
+        0.34,
+        0.42,
+        pick(palette.water)
+      );
+
+      if (random() > 0.47) {
+        addFoam(
+          fallX + range(-0.22, 0.22),
+          y - 0.06,
+          fallZ + 0.23,
+          range(0.07, 0.14),
+          0.27,
+          0.055,
+          pick(palette.foam)
+        );
+      }
+    }
+
+    // Small splash voxels at the top and bottom.
+    for (let i = 0; i < 15; i++) {
+      addFoam(
+        fallX + range(-0.55, 0.55),
+        range(-4.65, -4.35),
+        fallZ + range(-0.35, 0.45),
+        range(0.08, 0.18),
+        range(0.08, 0.16),
+        range(0.08, 0.18),
+        pick(palette.foam)
+      );
+    }
+
+    // ------------------------------------------------------------
+    // Central tree trunk
+    // ------------------------------------------------------------
+
+    for (let y = 0.35; y < 7.55; y += 0.39) {
+      const taper = THREE.MathUtils.mapLinear(
+        y,
+        0.35,
+        7.55,
+        1.02,
+        0.57
+      );
+
+      const trunkX = Math.sin(y * 0.72) * 0.12;
+      const trunkZ = Math.cos(y * 0.58) * 0.09;
+
+      addSolid(
+        trunkX,
+        y,
+        trunkZ,
+        taper,
+        0.45,
+        taper * 0.84,
+        pick(palette.trunk)
+      );
+    }
+
+    // Branch blocks entering the lower canopy.
+    const branches = [
+      { x: -1.0, y: 6.2, z: 0.15, sx: 2.1, sz: 0.52 },
+      { x: 1.15, y: 6.55, z: -0.15, sx: 2.4, sz: 0.56 },
+      { x: 0.15, y: 5.75, z: -0.85, sx: 0.58, sz: 1.75 },
+      { x: -0.5, y: 5.45, z: 0.72, sx: 0.55, sz: 1.6 }
+    ];
+
+    branches.forEach((branch) => {
+      addSolid(
+        branch.x,
+        branch.y,
+        branch.z,
+        branch.sx,
+        0.42,
+        branch.sz,
+        pick(palette.trunk)
+      );
+    });
+
+    // ------------------------------------------------------------
+    // Large layered voxel canopy
+    // ------------------------------------------------------------
+
+    const canopyLayers = [
+      { y: 7.25, factor: 1.00, colors: palette.redOrange },
+      { y: 7.67, factor: 0.96, colors: palette.orange },
+      { y: 8.08, factor: 0.91, colors: palette.orange },
+      { y: 8.49, factor: 0.84, colors: palette.amber },
+      { y: 8.90, factor: 0.73, colors: palette.gold },
+      { y: 9.31, factor: 0.57, colors: palette.gold },
+      { y: 9.72, factor: 0.38, colors: palette.amber }
+    ];
+
+    const canopyCells = [];
+
+    canopyLayers.forEach((layer, layerIndex) => {
+      const halfX = 7 * layer.factor;
+      const halfZ = 4.8 * layer.factor;
+
+      for (let iz = -5; iz <= 5; iz++) {
+        for (let ix = -8; ix <= 8; ix++) {
+          const nx = ix / halfX;
+          const nz = iz / halfZ;
+
+          const roundedValue =
+            Math.pow(Math.abs(nx), 4) +
+            Math.pow(Math.abs(nz), 4);
+
+          if (roundedValue > 1.03) {
+            continue;
+          }
+
+          if (random() < 0.035) {
+            continue;
+          }
+
+          const x = ix * 0.61;
+          const z = iz * 0.61;
+          const y = layer.y + range(-0.035, 0.035);
+
+          const sx = 0.64 + range(-0.035, 0.075);
+          const sy = 0.34 + range(-0.035, 0.075);
+          const sz = 0.64 + range(-0.035, 0.075);
+
+          addSolid(
+            x,
+            y,
+            z,
+            sx,
+            sy,
+            sz,
+            pick(layer.colors)
+          );
+
+          canopyCells.push({
+            x,
+            y,
+            z,
+            layerIndex
+          });
+        }
+      }
+    });
+
+    // A brighter golden cap on the uppermost canopy.
+    for (let iz = -2; iz <= 2; iz++) {
+      for (let ix = -3; ix <= 3; ix++) {
+        if (Math.abs(ix) + Math.abs(iz) > 4) {
+          continue;
+        }
+
+        addSolid(
+          ix * 0.63,
+          10.13 + range(-0.02, 0.02),
+          iz * 0.63,
+          0.68,
+          0.29,
+          0.68,
+          pick(palette.gold)
+        );
+      }
+    }
+
+    // Long slab-like accents around the canopy.
+    for (let i = 0; i < 34; i++) {
+      const side = Math.floor(random() * 4);
+      let x;
+      let z;
+
+      if (side === 0) {
+        x = range(-3.5, 3.5);
+        z = -2.75;
+      } else if (side === 1) {
+        x = range(-3.5, 3.5);
+        z = 2.75;
+      } else if (side === 2) {
+        x = -4.05;
+        z = range(-1.8, 1.8);
+      } else {
+        x = 4.05;
+        z = range(-1.8, 1.8);
+      }
+
+      const y = range(7.45, 9.25);
+
+      addSolid(
+        x,
+        y,
+        z,
+        side < 2 ? range(0.8, 1.6) : 0.58,
+        0.28,
+        side < 2 ? 0.58 : range(0.8, 1.6),
+        pick(random() > 0.45 ? palette.orange : palette.amber)
+      );
+    }
+
+    // ------------------------------------------------------------
+    // Orange roots dangling from the canopy
+    // ------------------------------------------------------------
+
+    const outerCanopy = canopyCells.filter((cell) => {
+      return (
+        Math.abs(cell.x) > 2.7 ||
+        Math.abs(cell.z) > 1.8
+      );
+    });
+
+    for (let i = 0; i < 42; i++) {
+      const origin = pick(outerCanopy);
+      const length = Math.floor(range(1, 4));
+
+      for (let segment = 0; segment < length; segment++) {
+        addSolid(
+          origin.x + range(-0.08, 0.08),
+          origin.y - 0.2 - segment * 0.27,
+          origin.z + range(-0.08, 0.08),
+          range(0.09, 0.15),
+          0.31,
+          range(0.09, 0.15),
+          pick(palette.orange)
+        );
+      }
+
+      if (random() > 0.7) {
+        addSolid(
+          origin.x,
+          origin.y - 0.28 - length * 0.27,
+          origin.z,
+          0.18,
+          0.24,
+          0.18,
+          pick(palette.amber)
+        );
+      }
+    }
+
+    // ------------------------------------------------------------
+    // Grass, flowers, and plants
+    // ------------------------------------------------------------
+
+    function validPlantPosition(x, z) {
+      if (roundedIslandValue(x, z) > 0.9) {
+        return false;
+      }
+
+      if (isWaterCell(x, z)) {
+        return false;
+      }
+
+      if (Math.hypot(x, z) < 1.1) {
+        return false;
+      }
+
+      return true;
+    }
+
+    // Grass blades.
+    for (let i = 0; i < 260; i++) {
+      const x = range(-4.0, 4.0);
+      const z = range(-3.8, 3.8);
+
+      if (!validPlantPosition(x, z)) {
+        continue;
+      }
+
+      const height = range(0.13, 0.34);
+
+      addSolid(
+        x,
+        0.23 + height * 0.5,
+        z,
+        0.065,
+        height,
+        0.065,
+        pick(["#2f741c", "#3d8d1b", "#60a821"])
+      );
+
+      if (random() > 0.76) {
+        addSolid(
+          x + 0.08,
+          0.24 + height,
+          z,
+          0.14,
+          0.065,
+          0.08,
+          "#4b981f"
+        );
+      }
+    }
+
+    // Small voxel flowers.
+    const flowerColors = [
+      "#ff4a37",
+      "#ffcf35",
+      "#f3a5d2",
+      "#f4f0dc",
+      "#8a5be8"
+    ];
+
+    for (let i = 0; i < 75; i++) {
+      const x = range(-3.8, 3.8);
+      const z = range(-3.5, 3.5);
+
+      if (!validPlantPosition(x, z)) {
+        continue;
+      }
+
+      const height = range(0.22, 0.39);
+      const petalColor = pick(flowerColors);
+
+      addSolid(
+        x,
+        0.24 + height * 0.5,
+        z,
+        0.055,
+        height,
+        0.055,
+        "#327d1c"
+      );
+
+      const headY = 0.25 + height;
+
+      addSolid(x, headY, z, 0.13, 0.10, 0.13, petalColor);
+      addSolid(x - 0.10, headY, z, 0.10, 0.08, 0.11, petalColor);
+      addSolid(x + 0.10, headY, z, 0.10, 0.08, 0.11, petalColor);
+      addSolid(x, headY, z - 0.10, 0.11, 0.08, 0.10, petalColor);
+      addSolid(x, headY, z + 0.10, 0.11, 0.08, 0.10, petalColor);
+      addSolid(x, headY + 0.075, z, 0.075, 0.06, 0.075, "#f4b51c");
+    }
+
+    // Green vines hanging from the island edge.
+    edgeCells.forEach((cell) => {
+      if (random() > 0.34) {
+        return;
+      }
+
+      const length = Math.floor(range(2, 6));
+
+      for (let i = 0; i < length; i++) {
+        const sway = Math.sin(i * 0.7 + cell.x) * 0.07;
+
+        addSolid(
+          cell.x + sway,
+          0.08 - i * 0.27,
+          cell.z + sway * 0.5,
+          0.11,
+          0.31,
+          0.11,
+          pick(["#347c1d", "#4c9720", "#2e6e1b"])
+        );
+
+        if (i > 0 && random() > 0.64) {
+          addSolid(
+            cell.x + sway + (random() > 0.5 ? 0.12 : -0.12),
+            0.05 - i * 0.27,
+            cell.z,
+            0.16,
+            0.09,
+            0.12,
+            "#56a421"
+          );
+        }
+      }
+    });
+
+    // ------------------------------------------------------------
+    // Build all voxel batches
+    // ------------------------------------------------------------
+
+    createInstancedVoxels(solidVoxels, solidMaterial);
+    createInstancedVoxels(waterVoxels, waterMaterial);
+    createInstancedVoxels(foamVoxels, foamMaterial);
+
+    // ------------------------------------------------------------
+    // Custom camera controls
+    // ------------------------------------------------------------
+
+    const controls = {
+      target: new THREE.Vector3(0, 2.9, 0),
+      radius: 19.2,
+      theta: 0.72,
+      phi: 1.02,
+      dragging: false,
+      panning: false,
+      previousX: 0,
+      previousY: 0
+    };
+
+    const initialControls = {
+      target: controls.target.clone(),
+      radius: controls.radius,
+      theta: controls.theta,
+      phi: controls.phi
+    };
+
+    function updateCamera() {
+      const sinPhi = Math.sin(controls.phi);
+
+      camera.position.set(
+        controls.target.x +
+          controls.radius * sinPhi * Math.sin(controls.theta),
+        controls.target.y +
+          controls.radius * Math.cos(controls.phi),
+        controls.target.z +
+          controls.radius * sinPhi * Math.cos(controls.theta)
+      );
+
+      camera.lookAt(controls.target);
+    }
+
+    renderer.domElement.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+    });
+
+    renderer.domElement.addEventListener("pointerdown", (event) => {
+      controls.dragging = true;
+      controls.panning = event.button === 2 || event.shiftKey;
+      controls.previousX = event.clientX;
+      controls.previousY = event.clientY;
+
+      renderer.domElement.setPointerCapture(event.pointerId);
+    });
+
+    renderer.domElement.addEventListener("pointermove", (event) => {
+      if (!controls.dragging) {
+        return;
+      }
+
+      const dx = event.clientX - controls.previousX;
+      const dy = event.clientY - controls.previousY;
+
+      controls.previousX = event.clientX;
+      controls.previousY = event.clientY;
+
+      if (controls.panning) {
+        const cameraRight = new THREE.Vector3();
+        const cameraUp = new THREE.Vector3();
+
+        camera.matrixWorld.extractBasis(
+          cameraRight,
+          cameraUp,
+          new THREE.Vector3()
+        );
+
+        const panScale = controls.radius * 0.0014;
+
+        controls.target.addScaledVector(
+          cameraRight,
+          -dx * panScale
+        );
+
+        controls.target.addScaledVector(
+          cameraUp,
+          dy * panScale
+        );
+      } else {
+        controls.theta -= dx * 0.006;
+        controls.phi = THREE.MathUtils.clamp(
+          controls.phi - dy * 0.005,
+          0.25,
+          Math.PI - 0.25
+        );
+      }
+
+      updateCamera();
+    });
+
+    function endPointer(event) {
+      controls.dragging = false;
+      controls.panning = false;
+
+      if (
+        renderer.domElement.hasPointerCapture &&
+        renderer.domElement.hasPointerCapture(event.pointerId)
+      ) {
+        renderer.domElement.releasePointerCapture(event.pointerId);
+      }
+    }
+
+    renderer.domElement.addEventListener("pointerup", endPointer);
+    renderer.domElement.addEventListener("pointercancel", endPointer);
+
+    renderer.domElement.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+
+        controls.radius = THREE.MathUtils.clamp(
+          controls.radius + event.deltaY * 0.012,
+          10,
+          32
+        );
+
+        updateCamera();
+      },
+      { passive: false }
+    );
+
+    renderer.domElement.addEventListener("dblclick", () => {
+      controls.target.copy(initialControls.target);
+      controls.radius = initialControls.radius;
+      controls.theta = initialControls.theta;
+      controls.phi = initialControls.phi;
+      updateCamera();
+    });
+
+    // ------------------------------------------------------------
+    // Resize and animation
+    // ------------------------------------------------------------
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+
+      renderer.setPixelRatio(
+        Math.min(window.devicePixelRatio, 2)
+      );
+
+      renderer.setSize(
+        window.innerWidth,
+        window.innerHeight
+      );
+    });
+
+    updateCamera();
+    renderer.render(scene, camera);
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // A nearly imperceptible drift keeps the scene alive.
+      const time = performance.now() * 0.00035;
+
+      controls.theta =
+        initialControls.theta +
+        Math.sin(time * 0.18) * 0.035;
+
+      controls.phi =
+        initialControls.phi +
+        Math.sin(time * 0.13) * 0.018;
+
+      updateCamera();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>

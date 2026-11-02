@@ -1,0 +1,7 @@
+node_modules
+__pycache__/
+*.pyc
+runs/
+results/*.log
+results/APOLLO_COMPLETE
+.DS_Store
