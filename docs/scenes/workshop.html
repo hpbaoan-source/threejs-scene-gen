@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Old Machinist Workshop</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #17130f;
+      font-family: Georgia, "Times New Roman", serif;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      cursor: grab;
+    }
+
+    canvas:active { cursor: grabbing; }
+
+    #title {
+      position: fixed;
+      top: 22px;
+      left: 24px;
+      z-index: 2;
+      color: #e7d3aa;
+      text-shadow: 0 2px 5px #000;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    #title h1 {
+      margin: 0;
+      font-size: clamp(22px, 3vw, 38px);
+      letter-spacing: 0.06em;
+      font-weight: normal;
+    }
+
+    #title p {
+      margin: 5px 0 0;
+      color: #b89c70;
+      font: 12px/1.4 Arial, sans-serif;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    #help {
+      position: fixed;
+      right: 20px;
+      bottom: 18px;
+      z-index: 2;
+      padding: 10px 14px;
+      border: 1px solid rgba(230, 196, 130, 0.25);
+      border-radius: 3px;
+      background: rgba(18, 14, 10, 0.68);
+      color: #d8c29b;
+      font: 12px/1.5 Arial, sans-serif;
+      pointer-events: none;
+      user-select: none;
+      backdrop-filter: blur(4px);
+    }
+
+    #help strong { color: #f0d39b; }
+
+    #loading {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: grid;
+      place-items: center;
+      background: #17130f;
+      color: #d9bd87;
+      font: 14px Arial, sans-serif;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      transition: opacity 0.5s ease;
+    }
+
+    #loading.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    @media (max-width: 600px) {
+      #title { left: 15px; top: 15px; }
+      #title p { font-size: 9px; }
+      #help { right: 10px; bottom: 10px; font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">Lighting the workshop…</div>
+
+  <div id="title">
+    <h1>The Old Machine Shop</h1>
+    <p>A working corner of a machinist's workshop</p>
+  </div>
+
+  <div id="help">
+    <strong>Drag</strong> to orbit &nbsp;·&nbsp;
+    <strong>Scroll / pinch</strong> to zoom &nbsp;·&nbsp;
+    <strong>Double-click</strong> to reset
+  </div>
+
+  <script type="module">
+    import * as THREE from
+      "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js";
+
+    // -------------------------------------------------------------------------
+    // Renderer and scene
+    // -------------------------------------------------------------------------
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: "high-performance"
+    });
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.12;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x211a14);
+    scene.fog = new THREE.FogExp2(0x211a14, 0.027);
+
+    const camera = new THREE.PerspectiveCamera(
+      43,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      80
+    );
+
+    // Custom camera state
+    const orbit = {
+      target: new THREE.Vector3(0, 2.55, -0.15),
+      radius: 10.8,
+      theta: 0.57,
+      phi: 1.08,
+      targetTheta: 0.57,
+      targetPhi: 1.08,
+      targetRadius: 10.8
+    };
+
+    function updateCamera() {
+      const sinPhi = Math.sin(orbit.phi);
+      camera.position.set(
+        orbit.target.x + orbit.radius * sinPhi * Math.sin(orbit.theta),
+        orbit.target.y + orbit.radius * Math.cos(orbit.phi),
+        orbit.target.z + orbit.radius * sinPhi * Math.cos(orbit.theta)
+      );
+      camera.lookAt(orbit.target);
+    }
+
+    updateCamera();
+
+    // -------------------------------------------------------------------------
+    // Procedural textures
+    // -------------------------------------------------------------------------
+
+    function makeWoodTexture() {
+      const canvas = document.createElement("canvas");
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext("2d");
+
+      ctx.fillStyle = "#654328";
+      ctx.fillRect(0, 0, 512, 512);
+
+      for (let i = 0; i < 700; i++) {
+        const y = Math.random() * 512;
+        const alpha = 0.025 + Math.random() * 0.075;
+        ctx.strokeStyle = `rgba(${Math.random() > 0.5 ? "25,13,5" : "185,132,65"},${alpha})`;
+        ctx.lineWidth = 0.5 + Math.random() * 2;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+
+        for (let x = 0; x <= 512; x += 16) {
+          ctx.lineTo(
+            x,
+            y + Math.sin(x * 0.022 + i) * (2 + Math.random() * 5)
+          );
+        }
+        ctx.stroke();
+      }
+
+      for (let i = 0; i < 38; i++) {
+        const x = Math.random() * 512;
+        const y = Math.random() * 512;
+        const radius = 4 + Math.random() * 13;
+
+        ctx.strokeStyle = "rgba(25,12,4,0.18)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(x, y, radius * 1.7, radius, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(2.5, 1.5);
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return texture;
+    }
+
+    function makeMetalTexture() {
+      const canvas = document.createElement("canvas");
+      canvas.width = 256;
+      canvas.height = 256;
+      const ctx = canvas.getContext("2d");
+
+      ctx.fillStyle = "#77766d";
+      ctx.fillRect(0, 0, 256, 256);
+
+      for (let i = 0; i < 1800; i++) {
+        const v = 60 + Math.floor(Math.random() * 100);
+        ctx.fillStyle = `rgba(${v},${v},${v - 8},${Math.random() * 0.13})`;
+        ctx.fillRect(
+          Math.random() * 256,
+          Math.random() * 256,
+          1 + Math.random() * 5,
+          1
+        );
+      }
+
+      for (let i = 0; i < 25; i++) {
+        ctx.fillStyle = "rgba(78,40,15,0.12)";
+        const x = Math.random() * 256;
+        const y = Math.random() * 256;
+        ctx.beginPath();
+        ctx.arc(x, y, 2 + Math.random() * 8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(2, 2);
+      return texture;
+    }
+
+    function makePegboardTexture() {
+      const canvas = document.createElement("canvas");
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext("2d");
+
+      ctx.fillStyle = "#715032";
+      ctx.fillRect(0, 0, 512, 512);
+
+      for (let i = 0; i < 7000; i++) {
+        const light = Math.random() > 0.5;
+        ctx.fillStyle = light
+          ? `rgba(225,185,120,${Math.random() * 0.12})`
+          : `rgba(31,17,7,${Math.random() * 0.12})`;
+        ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+      }
+
+      for (let y = 16; y < 512; y += 32) {
+        for (let x = 16; x < 512; x += 32) {
+          ctx.fillStyle = "#18120d";
+          ctx.beginPath();
+          ctx.arc(x, y, 4.4, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = "rgba(226,184,111,0.14)";
+          ctx.beginPath();
+          ctx.arc(x - 1, y - 1, 4.7, Math.PI, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(4.5, 2.4);
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return texture;
+    }
+
+    function makeLabelTexture(text) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 512;
+      canvas.height = 160;
+      const ctx = canvas.getContext("2d");
+
+      ctx.fillStyle = "#242723";
+      ctx.fillRect(0, 0, 512, 160);
+      ctx.strokeStyle = "#a48650";
+      ctx.lineWidth = 8;
+      ctx.strokeRect(8, 8, 496, 144);
+
+      ctx.fillStyle = "#d3bc84";
+      ctx.font = "bold 58px Georgia";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, 256, 82);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    }
+
+    const woodTexture = makeWoodTexture();
+    const metalTexture = makeMetalTexture();
+    const pegboardTexture = makePegboardTexture();
+
+    // -------------------------------------------------------------------------
+    // Materials
+    // -------------------------------------------------------------------------
+
+    const materials = {
+      wood: new THREE.MeshStandardMaterial({
+        map: woodTexture,
+        color: 0xb68a58,
+        roughness: 0.9,
+        metalness: 0.02
+      }),
+      darkWood: new THREE.MeshStandardMaterial({
+        map: woodTexture,
+        color: 0x65432c,
+        roughness: 0.95
+      }),
+      machine: new THREE.MeshStandardMaterial({
+        map: metalTexture,
+        color: 0x4d5a50,
+        roughness: 0.64,
+        metalness: 0.72
+      }),
+      machineDark: new THREE.MeshStandardMaterial({
+        map: metalTexture,
+        color: 0x232b28,
+        roughness: 0.68,
+        metalness: 0.75
+      }),
+      steel: new THREE.MeshStandardMaterial({
+        map: metalTexture,
+        color: 0xb7b9b4,
+        roughness: 0.28,
+        metalness: 0.9
+      }),
+      blackSteel: new THREE.MeshStandardMaterial({
+        color: 0x171918,
+        roughness: 0.48,
+        metalness: 0.82
+      }),
+      brass: new THREE.MeshStandardMaterial({
+        color: 0xa87c32,
+        roughness: 0.44,
+        metalness: 0.84
+      }),
+      oldBrass: new THREE.MeshStandardMaterial({
+        color: 0x6e5129,
+        roughness: 0.7,
+        metalness: 0.68
+      }),
+      red: new THREE.MeshStandardMaterial({
+        color: 0x762c24,
+        roughness: 0.72,
+        metalness: 0.42
+      }),
+      rubber: new THREE.MeshStandardMaterial({
+        color: 0x181615,
+        roughness: 0.96
+      }),
+      wall: new THREE.MeshStandardMaterial({
+        color: 0x625343,
+        roughness: 1
+      }),
+      floor: new THREE.MeshStandardMaterial({
+        color: 0x382c24,
+        roughness: 0.96
+      }),
+      pegboard: new THREE.MeshStandardMaterial({
+        map: pegboardTexture,
+        color: 0xb38c60,
+        roughness: 0.92
+      }),
+      paper: new THREE.MeshStandardMaterial({
+        color: 0xcbb990,
+        roughness: 0.95
+      }),
+      oil: new THREE.MeshStandardMaterial({
+        color: 0x3f3522,
+        roughness: 0.35,
+        metalness: 0.25
+      })
+    };
+
+    function addMesh(geometry, material, x = 0, y = 0, z = 0, cast = true) {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = cast;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      return mesh;
+    }
+
+    function addBox(w, h, d, material, x, y, z, cast = true) {
+      return addMesh(
+        new THREE.BoxGeometry(w, h, d),
+        material,
+        x, y, z, cast
+      );
+    }
+
+    function addCylinder(
+      radius,
+      length,
+      material,
+      x, y, z,
+      axis = "y",
+      radialSegments = 32,
+      cast = true
+    ) {
+      const mesh = addMesh(
+        new THREE.CylinderGeometry(radius, radius, length, radialSegments),
+        material,
+        x, y, z, cast
+      );
+
+      if (axis === "x") mesh.rotation.z = Math.PI / 2;
+      if (axis === "z") mesh.rotation.x = Math.PI / 2;
+      return mesh;
+    }
+
+    function addTorus(radius, tube, material, x, y, z, axis = "z") {
+      const mesh = addMesh(
+        new THREE.TorusGeometry(radius, tube, 12, 48),
+        material,
+        x, y, z
+      );
+
+      if (axis === "x") mesh.rotation.y = Math.PI / 2;
+      if (axis === "y") mesh.rotation.x = Math.PI / 2;
+      return mesh;
+    }
+
+    // -------------------------------------------------------------------------
+    // Room
+    // -------------------------------------------------------------------------
+
+    const floor = addMesh(
+      new THREE.PlaneGeometry(30, 30),
+      materials.floor,
+      0, 0, 0,
+      false
+    );
+    floor.rotation.x = -Math.PI / 2;
+
+    // Subtle floor boards
+    for (let x = -12; x <= 12; x += 1.2) {
+      addBox(
+        0.025, 0.012, 25,
+        materials.darkWood,
+        x, 0.008, 0,
+        false
+      );
+    }
+
+    addBox(19, 8, 0.25, materials.wall, 0, 4, -3.15, false);
+    addBox(0.25, 8, 18, materials.wall, -7, 4, 0, false);
+
+    // Wainscot and trim
+    addBox(18.5, 1.35, 0.12, materials.darkWood, 0, 0.68, -2.98, false);
+    addBox(18.5, 0.12, 0.18, materials.wood, 0, 1.38, -2.94, false);
+    addBox(18.5, 0.13, 0.18, materials.wood, 0, 4.8, -2.94, false);
+
+    // Pegboard
+    addBox(9.2, 4.25, 0.12, materials.darkWood, 0, 3.58, -2.88);
+    const pegboard = addMesh(
+      new THREE.PlaneGeometry(9.0, 4.05),
+      materials.pegboard,
+      0, 3.58, -2.805,
+      false
+    );
+
+    // -------------------------------------------------------------------------
+    // Workbench
+    // -------------------------------------------------------------------------
+
+    addBox(8.6, 0.34, 2.15, materials.wood, 0, 1.53, 0);
+    addBox(8.4, 0.16, 1.95, materials.darkWood, 0, 1.3, 0);
+
+    for (const x of [-3.75, 3.75]) {
+      for (const z of [-0.78, 0.78]) {
+        addBox(0.34, 1.4, 0.34, materials.darkWood, x, 0.7, z);
+      }
+    }
+
+    addBox(7.7, 0.18, 0.18, materials.darkWood, 0, 0.46, -0.78);
+    addBox(7.7, 0.18, 0.18, materials.darkWood, 0, 0.46, 0.78);
+
+    // Lower shelf
+    addBox(7.7, 0.18, 1.65, materials.wood, 0, 0.42, 0);
+
+    // Front vise
+    addBox(0.85, 0.25, 0.65, materials.machineDark, -3.25, 1.84, 0.42);
+    addBox(0.65, 0.23, 0.36, materials.machine, -3.25, 2.02, 0.56);
+    addBox(0.8, 0.28, 0.13, materials.steel, -3.25, 2.01, 0.79);
+    addCylinder(0.08, 0.75, materials.steel, -3.25, 2.01, 0.94, "z");
+
+    // Small drawer cabinet on the right
+    addBox(1.35, 1.15, 1.45, materials.red, 3.72, 0.98, -0.1);
+    for (let i = 0; i < 3; i++) {
+      addBox(1.18, 0.27, 0.08, materials.red, 3.72, 0.58 + i * 0.32, 0.67);
+      addBox(0.35, 0.045, 0.055, materials.steel, 3.72, 0.58 + i * 0.32, 0.74);
+    }
+
+    // -------------------------------------------------------------------------
+    // Metal lathe
+    // -------------------------------------------------------------------------
+
+    const lathe = new THREE.Group();
+    scene.add(lathe);
+
+    function latheMesh(geometry, material, x, y, z, cast = true) {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = cast;
+      mesh.receiveShadow = true;
+      lathe.add(mesh);
+      return mesh;
+    }
+
+    function latheBox(w, h, d, material, x, y, z) {
+      return latheMesh(new THREE.BoxGeometry(w, h, d), material, x, y, z);
+    }
+
+    function latheCylinder(
+      r1, r2, length, material,
+      x, y, z,
+      rotationZ = 0,
+      segments = 40
+    ) {
+      const mesh = latheMesh(
+        new THREE.CylinderGeometry(r1, r2, length, segments),
+        material,
+        x, y, z
+      );
+      mesh.rotation.z = rotationZ;
+      return mesh;
+    }
+
+    // Main bed and cabinet
+    latheBox(6.25, 0.45, 1.28, materials.machine, 0, 2.04, 0);
+    latheBox(6.45, 0.13, 1.48, materials.machineDark, 0, 1.78, 0);
+
+    // Bed ways
+    for (const z of [-0.44, 0.44]) {
+      latheBox(6.2, 0.10, 0.16, materials.steel, 0, 2.31, z);
+    }
+
+    // Headstock
+    latheBox(1.55, 1.62, 1.42, materials.machine, -2.25, 2.77, 0);
+    latheBox(1.65, 0.18, 1.5, materials.machineDark, -2.25, 3.63, 0);
+    latheBox(1.2, 1.08, 0.10, materials.machineDark, -2.25, 2.87, 0.74);
+    latheBox(0.88, 0.82, 0.025, materials.machine, -2.25, 2.88, 0.803);
+
+    // Headstock maker plate
+    const plate = latheMesh(
+      new THREE.PlaneGeometry(0.72, 0.22),
+      new THREE.MeshStandardMaterial({
+        map: makeLabelTexture("WAYNE"),
+        roughness: 0.55,
+        metalness: 0.45
+      }),
+      -2.25, 3.13, 0.825
+    );
+
+    // Spindle housing and chuck
+    latheCylinder(0.39, 0.39, 0.62, materials.machineDark, -1.33, 2.95, 0, Math.PI / 2);
+    const chuck = latheCylinder(
+      0.57, 0.57, 0.32, materials.steel,
+      -0.91, 2.95, 0, Math.PI / 2, 64
+    );
+    latheCylinder(0.40, 0.40, 0.43, materials.blackSteel, -0.83, 2.95, 0, Math.PI / 2);
+
+    // Chuck face and jaws
+    latheCylinder(0.47, 0.47, 0.06, materials.blackSteel, -0.72, 2.95, 0, Math.PI / 2, 64);
+
+    for (let i = 0; i < 3; i++) {
+      const a = i * Math.PI * 2 / 3 + Math.PI / 6;
+      const jaw = latheBox(
+        0.25, 0.18, 0.18,
+        materials.blackSteel,
+        -0.65,
+        2.95 + Math.sin(a) * 0.27,
+        Math.cos(a) * 0.27
+      );
+      jaw.rotation.x = -a;
+    }
+
+    // Rotating steel workpiece
+    latheCylinder(0.23, 0.23, 1.65, materials.steel, 0.03, 2.95, 0, Math.PI / 2, 48);
+    latheCylinder(0.29, 0.29, 0.22, materials.blackSteel, -0.64, 2.95, 0, Math.PI / 2);
+
+    // Carriage and cross slide
+    latheBox(1.12, 0.27, 1.08, materials.machine, 0.16, 2.47, 0);
+    latheBox(0.86, 0.15, 0.78, materials.machineDark, 0.16, 2.67, 0);
+    latheBox(0.73, 0.13, 0.88, materials.steel, 0.16, 2.81, 0.02);
+
+    // Apron and handwheel
+    latheBox(0.9, 0.82, 0.35, materials.machine, 0.16, 2.4, 0.71);
+    latheCylinder(0.31, 0.31, 0.18, materials.blackSteel, 0.16, 2.39, 0.96, Math.PI / 2);
+    latheMesh(
+      new THREE.TorusGeometry(0.34, 0.035, 12, 48),
+      materials.blackSteel,
+      0.16, 2.39, 1.07
+    );
+
+    for (let i = 0; i < 4; i++) {
+      const spoke = latheBox(
+        0.035, 0.58, 0.035,
+        materials.steel,
+        0.16, 2.39, 1.07
+      );
+      spoke.rotation.z = i * Math.PI / 4;
+    }
+
+    // Tailstock
+    latheBox(0.74, 0.52, 1.02, materials.machine, 2.45, 2.56, 0);
+    latheCylinder(0.34, 0.23, 0.85, materials.machine, 2.18, 2.95, 0, -Math.PI / 2);
+    latheCylinder(0.11, 0.11, 0.55, materials.steel, 1.57, 2.95, 0, Math.PI / 2);
+    const center = latheCylinder(
+      0.03, 0.13, 0.25, materials.steel,
+      1.26, 2.95, 0, Math.PI / 2
+    );
+
+    // Tailstock handwheel
+    latheCylinder(0.22, 0.22, 0.16, materials.blackSteel, 2.56, 2.54, 0.67, Math.PI / 2);
+    latheMesh(
+      new THREE.TorusGeometry(0.24, 0.027, 10, 36),
+      materials.blackSteel,
+      2.56, 2.54, 0.77
+    );
+
+    // Feed levers
+    for (const [x, z] of [[0.56, 0.55], [-0.12, 0.53]]) {
+      const lever = latheCylinder(
+        0.026, 0.026, 0.85, materials.steel,
+        x, 2.57, z
+      );
+      lever.rotation.x = 0.8;
+    }
+
+    // Transmission motor at the back of the headstock
+    latheCylinder(0.46, 0.46, 0.9, materials.machineDark, -2.32, 3.25, -1.02, Math.PI / 2);
+    latheCylinder(0.35, 0.35, 0.16, materials.blackSteel, -2.32, 3.25, -1.52, Math.PI / 2);
+    latheBox(0.62, 0.15, 0.68, materials.machineDark, -2.32, 2.77, -1.02);
+
+    // Levers and handles
+    for (const y of [2.54, 2.75]) {
+      const lever = latheCylinder(
+        0.028, 0.028, 0.6, materials.steel,
+        -2.67, y, 0.92
+      );
+      lever.rotation.x = Math.PI / 2;
+      latheCylinder(0.07, 0.07, 0.18, materials.darkWood, -2.67, y, 1.24, "z");
+    }
+
+    // -------------------------------------------------------------------------
+    // Gears
+    // -------------------------------------------------------------------------
+
+    function makeGear(teeth, innerRadius, outerRadius, depth, material) {
+      const shape = new THREE.Shape();
+      const steps = teeth * 4;
+
+      for (let i = 0; i <= steps; i++) {
+        const angle = (i / steps) * Math.PI * 2;
+        const phase = i % 4;
+        const radius = (phase === 1 || phase === 2)
+          ? outerRadius
+          : innerRadius;
+
+        const x = Math.cos(angle) * radius;
+        const y = Math.sin(angle) * radius;
+
+        if (i === 0) shape.moveTo(x, y);
+        else shape.lineTo(x, y);
+      }
+
+      const hole = new THREE.Path();
+      hole.absarc(0, 0, outerRadius * 0.27, 0, Math.PI * 2, true);
+      shape.holes.push(hole);
+
+      const geometry = new THREE.ExtrudeGeometry(shape, {
+        depth,
+        bevelEnabled: true,
+        bevelSize: 0.025,
+        bevelThickness: 0.025,
+        bevelSegments: 1,
+        curveSegments: 6
+      });
+
+      geometry.translate(0, 0, -depth / 2);
+      return geometry;
+    }
+
+    // Pegboard gears
+    addMesh(
+      makeGear(18, 0.53, 0.68, 0.11, materials.oldBrass),
+      materials.oldBrass,
+      3.18, 4.31, -2.67
+    );
+
+    addMesh(
+      makeGear(13, 0.34, 0.47, 0.10, materials.brass),
+      materials.brass,
+      4.14, 3.77, -2.67
+    );
+
+    addMesh(
+      makeGear(15, 0.39, 0.52, 0.10, materials.oldBrass),
+      materials.oldBrass,
+      3.92, 4.85, -2.66
+    );
+
+    // Loose gears resting on the bench
+    const looseGear = addMesh(
+      makeGear(20, 0.52, 0.69, 0.12, materials.brass),
+      materials.brass,
+      3.04, 1.89, 0.15
+    );
+    looseGear.rotation.x = Math.PI / 2;
+
+    const looseGear2 = addMesh(
+      makeGear(12, 0.29, 0.4, 0.10, materials.oldBrass),
+      materials.oldBrass,
+      3.52, 1.82, -0.3
+    );
+    looseGear2.rotation.x = Math.PI / 2;
+
+    // -------------------------------------------------------------------------
+    // Pegboard tools
+    // -------------------------------------------------------------------------
+
+    const toolZ = -2.57;
+
+    function addHook(x, y) {
+      const hook = addCylinder(
+        0.018, 0.18, materials.steel,
+        x, y, toolZ + 0.08,
+        "z",
+        10
+      );
+      hook.rotation.x = Math.PI / 2;
+    }
+
+    // Hammer
+    addHook(-3.45, 4.48);
+    addBox(0.105, 1.15, 0.09, materials.wood, -3.45, 4.0, toolZ);
+    addBox(0.55, 0.25, 0.18, materials.steel, -3.45, 4.61, toolZ);
+    addBox(0.18, 0.3, 0.18, materials.blackSteel, -3.68, 4.61, toolZ);
+
+    // Open-end wrench
+    addHook(-2.58, 4.73);
+    addBox(0.11, 1.2, 0.065, materials.steel, -2.58, 4.02, toolZ);
+    addBox(0.35, 0.12, 0.065, materials.steel, -2.58, 4.64, toolZ);
+    addBox(0.12, 0.31, 0.065, materials.steel, -2.75, 4.79, toolZ);
+    addBox(0.12, 0.31, 0.065, materials.steel, -2.41, 4.79, toolZ);
+    addBox(0.31, 0.12, 0.065, materials.steel, -2.58, 3.41, toolZ);
+
+    // Screwdrivers
+    for (let i = 0; i < 3; i++) {
+      const x = -1.85 + i * 0.34;
+      addHook(x, 4.42);
+      addCylinder(0.032, 0.72, materials.steel, x, 3.92, toolZ, "y", 16);
+      addCylinder(0.065, 0.43, materials.red, x, 4.47, toolZ, "y", 20);
+      addBox(0.09, 0.035, 0.035, materials.steel, x, 3.54, toolZ);
+    }
+
+    // Pliers
+    addHook(-0.58, 4.37);
+    const plierA = addBox(0.09, 0.9, 0.065, materials.steel, -0.72, 3.86, toolZ);
+    plierA.rotation.z = -0.18;
+    const plierB = addBox(0.09, 0.9, 0.065, materials.red, -0.44, 3.86, toolZ);
+    plierB.rotation.z = 0.18;
+    addCylinder(0.08, 0.08, materials.brass, -0.58, 4.08, toolZ, "z", 20);
+
+    // Hand saw
+    addHook(-3.58, 3.24);
+    const sawShape = new THREE.Shape();
+    sawShape.moveTo(0, 0);
+    sawShape.lineTo(1.55, -0.08);
+    sawShape.lineTo(1.55, -0.52);
+    sawShape.lineTo(0, -0.48);
+    sawShape.closePath();
+
+    const saw = addMesh(
+      new THREE.ExtrudeGeometry(sawShape, {
+        depth: 0.035,
+        bevelEnabled: false
+      }),
+      materials.steel,
+      -3.58, 3.2, toolZ
+    );
+    addBox(0.52, 0.13, 0.13, materials.darkWood, -3.75, 3.22, toolZ);
+
+    // Framing square
+    addHook(0.1, 4.9);
+    addBox(0.075, 1.18, 0.05, materials.oldBrass, 0.1, 4.27, toolZ);
+    addBox(0.78, 0.075, 0.05, materials.oldBrass, 0.43, 4.82, toolZ);
+
+    // Chisels
+    for (let i = 0; i < 4; i++) {
+      const x = 1.08 + i * 0.24;
+      addHook(x, 4.12);
+      addBox(0.075, 0.74, 0.045, materials.steel, x, 3.69, toolZ);
+      addBox(0.12, 0.4, 0.11, materials.darkWood, x, 4.22, toolZ);
+    }
+
+    // Measuring ruler
+    addHook(2.0, 4.78);
+    addBox(0.12, 1.7, 0.045, materials.brass, 2.0, 3.82, toolZ);
+
+    // -------------------------------------------------------------------------
+    // Shelf and small clutter
+    // -------------------------------------------------------------------------
+
+    addBox(2.6, 0.12, 0.7, materials.wood, 2.15, 5.62, -2.48);
+
+    // Oil cans
+    function addOilCan(x, y, z, scale = 1) {
+      const group = new THREE.Group();
+      group.position.set(x, y, z);
+      group.scale.setScalar(scale);
+
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.17, 0.21, 0.38, 20),
+        materials.machine
+      );
+      body.castShadow = true;
+      body.receiveShadow = true;
+      group.add(body);
+
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.07, 0.12, 0.13, 16),
+        materials.brass
+      );
+      cap.position.y = 0.24;
+      cap.castShadow = true;
+      group.add(cap);
+
+      const spout = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.022, 0.045, 0.42, 12),
+        materials.brass
+      );
+      spout.position.set(0.15, 0.38, 0);
+      spout.rotation.z = -0.8;
+      spout.castShadow = true;
+      group.add(spout);
+
+      scene.add(group);
+    }
+
+    addOilCan(-3.55, 1.9, -0.43, 0.9);
+    addOilCan(2.38, 5.82, -2.47, 0.7);
+    addOilCan(2.82, 5.82, -2.47, 0.55);
+
+    // Jar of small parts
+    addCylinder(0.18, 0.32, materials.oil, -2.65, 5.87, -2.45, "y", 24);
+
+    // Loose washers and bolts
+    for (let i = 0; i < 9; i++) {
+      const washer = addMesh(
+        new THREE.TorusGeometry(
+          0.035 + Math.random() * 0.025,
+          0.011,
+          8,
+          18
+        ),
+        materials.steel,
+        -1.2 + Math.random() * 1.1,
+        1.72,
+        0.25 + Math.random() * 0.45
+      );
+      washer.rotation.x = Math.PI / 2;
+    }
+
+    // Folded shop rag
+    const rag = addBox(
+      0.68, 0.045, 0.48,
+      new THREE.MeshStandardMaterial({
+        color: 0x687166,
+        roughness: 1
+      }),
+      1.35, 1.74, 0.48
+    );
+    rag.rotation.y = 0.25;
+
+    // -------------------------------------------------------------------------
+    // Overhead lamp and lighting
+    // -------------------------------------------------------------------------
+
+    // Ceiling beam
+    addBox(15, 0.35, 0.45, materials.darkWood, 0, 7.25, -0.2, false);
+
+    // Hanging cord
+    addCylinder(0.022, 1.7, materials.rubber, -0.15, 6.42, 0.1, "y", 12);
+
+    // Lamp shade
+    const shade = addMesh(
+      new THREE.ConeGeometry(0.68, 0.52, 40, 1, true),
+      new THREE.MeshStandardMaterial({
+        color: 0x363b37,
+        side: THREE.DoubleSide,
+        roughness: 0.56,
+        metalness: 0.7
+      }),
+      -0.15, 5.35, 0.1
+    );
+    shade.castShadow = true;
+
+    // Inner shade
+    const innerShade = addMesh(
+      new THREE.ConeGeometry(0.63, 0.46, 40, 1, true),
+      new THREE.MeshStandardMaterial({
+        color: 0xe1b06e,
+        emissive: 0x9b5d1d,
+        emissiveIntensity: 0.3,
+        side: THREE.BackSide,
+        roughness: 0.8
+      }),
+      -0.15, 5.34, 0.1,
+      false
+    );
+
+    // Glowing bulb
+    const bulb = addMesh(
+      new THREE.SphereGeometry(0.14, 24, 16),
+      new THREE.MeshStandardMaterial({
+        color: 0xffd58b,
+        emissive: 0xff9f38,
+        emissiveIntensity: 3.2,
+        roughness: 0.2
+      }),
+      -0.15, 5.08, 0.1,
+      false
+    );
+
+    const warmSpot = new THREE.SpotLight(0xffb45f, 165, 18, 0.72, 0.68, 1.5);
+    warmSpot.position.set(-0.15, 5.02, 0.1);
+    warmSpot.target.position.set(0, 1.8, 0);
+    warmSpot.castShadow = true;
+    warmSpot.shadow.mapSize.set(2048, 2048);
+    warmSpot.shadow.bias = -0.00015;
+    scene.add(warmSpot, warmSpot.target);
+
+    const fillLight = new THREE.PointLight(0xffc278, 48, 11, 2);
+    fillLight.position.set(2.6, 4.5, 2.3);
+    scene.add(fillLight);
+
+    const coolFill = new THREE.DirectionalLight(0x9aafb8, 0.7);
+    coolFill.position.set(-5, 5, 6);
+    scene.add(coolFill);
+
+    const keyLight = new THREE.DirectionalLight(0xffd3a1, 1.65);
+    keyLight.position.set(3.5, 7, 5.5);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
+    keyLight.shadow.camera.left = -8;
+    keyLight.shadow.camera.right = 8;
+    keyLight.shadow.camera.top = 8;
+    keyLight.shadow.camera.bottom = -5;
+    keyLight.shadow.camera.near = 0.5;
+    keyLight.shadow.camera.far = 25;
+    keyLight.shadow.bias = -0.0002;
+    scene.add(keyLight);
+
+    scene.add(new THREE.HemisphereLight(0x9a7956, 0x17120e, 0.58));
+
+    // -------------------------------------------------------------------------
+    // Custom orbit and zoom controls
+    // -------------------------------------------------------------------------
+
+    const canvas = renderer.domElement;
+    const pointers = new Map();
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    let previousPinchDistance = 0;
+
+    canvas.addEventListener("pointerdown", (event) => {
+      canvas.setPointerCapture(event.pointerId);
+      pointers.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY
+      });
+
+      if (pointers.size === 1) {
+        dragging = true;
+        lastX = event.clientX;
+        lastY = event.clientY;
+      } else if (pointers.size === 2) {
+        dragging = false;
+        previousPinchDistance = getPinchDistance();
+      }
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      if (!pointers.has(event.pointerId)) return;
+
+      pointers.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY
+      });
+
+      if (pointers.size === 1 && dragging) {
+        const dx = event.clientX - lastX;
+        const dy = event.clientY - lastY;
+
+        orbit.targetTheta -= dx * 0.006;
+        orbit.targetPhi -= dy * 0.005;
+
+        orbit.targetPhi = THREE.MathUtils.clamp(
+          orbit.targetPhi,
+          0.48,
+          1.48
+        );
+
+        lastX = event.clientX;
+        lastY = event.clientY;
+      } else if (pointers.size === 2) {
+        const distance = getPinchDistance();
+
+        if (previousPinchDistance > 0 && distance > 0) {
+          orbit.targetRadius *= previousPinchDistance / distance;
+          orbit.targetRadius = THREE.MathUtils.clamp(
+            orbit.targetRadius,
+            4.6,
+            16.5
+          );
+        }
+
+        previousPinchDistance = distance;
+      }
+    });
+
+    function endPointer(event) {
+      pointers.delete(event.pointerId);
+
+      if (pointers.size === 0) {
+        dragging = false;
+      } else if (pointers.size === 1) {
+        const remaining = [...pointers.values()][0];
+        lastX = remaining.x;
+        lastY = remaining.y;
+      }
+    }
+
+    canvas.addEventListener("pointerup", endPointer);
+    canvas.addEventListener("pointercancel", endPointer);
+    canvas.addEventListener("lostpointercapture", endPointer);
+
+    function getPinchDistance() {
+      const values = [...pointers.values()];
+      if (values.length < 2) return 0;
+
+      return Math.hypot(
+        values[0].x - values[1].x,
+        values[0].y - values[1].y
+      );
+    }
+
+    canvas.addEventListener("wheel", (event) => {
+      event.preventDefault();
+
+      const factor = Math.exp(event.deltaY * 0.001);
+      orbit.targetRadius *= factor;
+      orbit.targetRadius = THREE.MathUtils.clamp(
+        orbit.targetRadius,
+        4.6,
+        16.5
+      );
+    }, { passive: false });
+
+    canvas.addEventListener("dblclick", () => {
+      orbit.targetTheta = 0.57;
+      orbit.targetPhi = 1.08;
+      orbit.targetRadius = 10.8;
+    });
+
+    // Keyboard support
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowLeft") orbit.targetTheta += 0.08;
+      if (event.key === "ArrowRight") orbit.targetTheta -= 0.08;
+      if (event.key === "ArrowUp") orbit.targetPhi -= 0.06;
+      if (event.key === "ArrowDown") orbit.targetPhi += 0.06;
+      if (event.key === "+" || event.key === "=") orbit.targetRadius -= 0.5;
+      if (event.key === "-" || event.key === "_") orbit.targetRadius += 0.5;
+
+      orbit.targetPhi = THREE.MathUtils.clamp(orbit.targetPhi, 0.48, 1.48);
+      orbit.targetRadius = THREE.MathUtils.clamp(orbit.targetRadius, 4.6, 16.5);
+    });
+
+    // -------------------------------------------------------------------------
+    // Resize and animation
+    // -------------------------------------------------------------------------
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    });
+
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const elapsed = clock.getElapsedTime();
+
+      // Gentle damping for smooth camera movement
+      orbit.theta += (orbit.targetTheta - orbit.theta) * 0.08;
+      orbit.phi += (orbit.targetPhi - orbit.phi) * 0.08;
+      orbit.radius += (orbit.targetRadius - orbit.radius) * 0.08;
+
+      updateCamera();
+
+      // Subtle animation in the old workshop
+      bulb.material.emissiveIntensity =
+        3.0 + Math.sin(elapsed * 7.3) * 0.12 + Math.sin(elapsed * 2.1) * 0.08;
+
+      warmSpot.intensity =
+        165 + Math.sin(elapsed * 6.7) * 2.2 + Math.sin(elapsed * 1.7) * 1.8;
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    document.getElementById("loading").classList.add("hidden");
+  </script>
+</body>
+</html>

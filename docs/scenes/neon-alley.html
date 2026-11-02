@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Neon Rain Alley</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #03050b;
+      font-family: Inter, system-ui, sans-serif;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    #vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 50% 42%, transparent 35%, rgba(0, 0, 0, 0.62) 100%),
+        linear-gradient(to bottom, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.36));
+      z-index: 2;
+    }
+
+    #hud {
+      position: fixed;
+      left: 22px;
+      bottom: 20px;
+      z-index: 3;
+      color: rgba(215, 245, 255, 0.72);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 10px;
+      pointer-events: none;
+      text-shadow: 0 0 12px rgba(0, 229, 255, 0.55);
+    }
+
+    #hud strong {
+      display: block;
+      margin-bottom: 5px;
+      color: #70f7ff;
+      font-size: 12px;
+    }
+
+    #status {
+      position: fixed;
+      top: 18px;
+      right: 20px;
+      z-index: 3;
+      color: rgba(255, 255, 255, 0.38);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="vignette"></div>
+  <div id="hud">
+    <strong>District 09 // Rain Sector</strong>
+    Drag to look · Scroll to move
+  </div>
+  <div id="status">Live atmospheric study</div>
+
+  <script type="module">
+    import * as THREE from
+      "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js";
+
+    // -------------------------------------------------------------------------
+    // Renderer and scene
+    // -------------------------------------------------------------------------
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x02050b);
+    scene.fog = new THREE.FogExp2(0x07101a, 0.024);
+
+    const camera = new THREE.PerspectiveCamera(
+      58,
+      innerWidth / innerHeight,
+      0.08,
+      180
+    );
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: "high-performance"
+    });
+
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.prepend(renderer.domElement);
+
+    const ambient = new THREE.HemisphereLight(0x284d72, 0x09050b, 0.72);
+    scene.add(ambient);
+
+    const moon = new THREE.DirectionalLight(0x8bb9df, 0.55);
+    moon.position.set(-8, 18, 10);
+    moon.castShadow = true;
+    moon.shadow.mapSize.set(1024, 1024);
+    moon.shadow.camera.left = -18;
+    moon.shadow.camera.right = 18;
+    moon.shadow.camera.top = 25;
+    moon.shadow.camera.bottom = -25;
+    moon.shadow.camera.near = 1;
+    moon.shadow.camera.far = 60;
+    scene.add(moon);
+
+    let seed = 481516;
+    function random() {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    }
+
+    function randomRange(min, max) {
+      return min + random() * (max - min);
+    }
+
+    const neonColors = [
+      0x00eaff,
+      0xff168f,
+      0x9b5cff,
+      0x00ff9d,
+      0xffb52e,
+      0xff304f
+    ];
+
+    // -------------------------------------------------------------------------
+    // Materials
+    // -------------------------------------------------------------------------
+
+    const wallMaterial = new THREE.MeshStandardMaterial({
+      color: 0x10151d,
+      roughness: 0.88,
+      metalness: 0.14
+    });
+
+    const darkMetal = new THREE.MeshStandardMaterial({
+      color: 0x111823,
+      roughness: 0.48,
+      metalness: 0.72
+    });
+
+    const roadMaterial = new THREE.MeshStandardMaterial({
+      color: 0x080c12,
+      roughness: 0.24,
+      metalness: 0.82
+    });
+
+    const pipeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x26333d,
+      roughness: 0.56,
+      metalness: 0.68
+    });
+
+    function emissiveMaterial(color, intensity = 3) {
+      return new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: intensity,
+        roughness: 0.3,
+        metalness: 0.12
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // Ground, curb, drainage channel
+    // -------------------------------------------------------------------------
+
+    const road = new THREE.Mesh(
+      new THREE.PlaneGeometry(18, 100),
+      roadMaterial
+    );
+    road.rotation.x = -Math.PI / 2;
+    road.position.set(0, 0, -30);
+    road.receiveShadow = true;
+    scene.add(road);
+
+    for (const side of [-1, 1]) {
+      const curb = new THREE.Mesh(
+        new THREE.BoxGeometry(0.45, 0.26, 100),
+        new THREE.MeshStandardMaterial({
+          color: 0x202833,
+          roughness: 0.72,
+          metalness: 0.32
+        })
+      );
+      curb.position.set(side * 7.2, 0.13, -30);
+      curb.receiveShadow = true;
+      scene.add(curb);
+
+      const gutter = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 0.025, 100),
+        new THREE.MeshStandardMaterial({
+          color: 0x03080c,
+          roughness: 0.12,
+          metalness: 0.92
+        })
+      );
+      gutter.position.set(side * 6.88, 0.145, -30);
+      scene.add(gutter);
+    }
+
+    // -------------------------------------------------------------------------
+    // Puddles: translucent physical surfaces plus colored reflected light
+    // -------------------------------------------------------------------------
+
+    const puddleMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0x142737,
+      transparent: true,
+      opacity: 0.72,
+      roughness: 0.07,
+      metalness: 0.25,
+      clearcoat: 1,
+      clearcoatRoughness: 0.05,
+      depthWrite: false
+    });
+
+    const puddleGeometry = new THREE.CircleGeometry(1, 32);
+    const puddles = [];
+
+    for (let i = 0; i < 38; i++) {
+      const puddle = new THREE.Mesh(puddleGeometry, puddleMaterial);
+      puddle.rotation.x = -Math.PI / 2;
+      puddle.rotation.z = randomRange(0, Math.PI);
+      puddle.scale.set(
+        randomRange(0.45, 1.9),
+        randomRange(0.18, 0.65),
+        1
+      );
+      puddle.position.set(
+        randomRange(-6.5, 6.5),
+        0.018 + random() * 0.006,
+        randomRange(-74, 13)
+      );
+      scene.add(puddle);
+      puddles.push(puddle);
+    }
+
+    // -------------------------------------------------------------------------
+    // Buildings
+    // -------------------------------------------------------------------------
+
+    const buildingBlocks = [];
+
+    function makeBuilding(side, z, width, depth, height, color) {
+      const material = new THREE.MeshStandardMaterial({
+        color,
+        roughness: randomRange(0.68, 0.92),
+        metalness: randomRange(0.05, 0.25)
+      });
+
+      const building = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, depth),
+        material
+      );
+
+      building.position.set(
+        side * (7.2 + width / 2),
+        height / 2,
+        z
+      );
+      building.castShadow = true;
+      building.receiveShadow = true;
+      scene.add(building);
+      buildingBlocks.push(building);
+
+      // Window rows.
+      const rows = Math.max(2, Math.floor(height / 3.2));
+      const columns = Math.max(2, Math.floor(depth / 2.5));
+
+      const windowGeometry = new THREE.PlaneGeometry(0.72, 0.95);
+
+      for (let row = 0; row < rows; row++) {
+        for (let column = 0; column < columns; column++) {
+          if (random() < 0.43) continue;
+
+          const color = random() < 0.78 ? 0x6aa8bf : 0xffbb77;
+          const windowMaterial = new THREE.MeshStandardMaterial({
+            color: 0x17202a,
+            emissive: color,
+            emissiveIntensity: randomRange(0.12, 0.65),
+            roughness: 0.3
+          });
+
+          const windowMesh = new THREE.Mesh(
+            windowGeometry,
+            windowMaterial
+          );
+
+          windowMesh.position.set(
+            side * (7.18),
+            2.6 + row * 2.55,
+            z - depth / 2 + 1.4 + column * 2.25
+          );
+          windowMesh.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+          scene.add(windowMesh);
+        }
+      }
+
+      // Fire escape platforms and rails.
+      if (height > 10 && random() > 0.28) {
+        const platform = new THREE.Mesh(
+          new THREE.BoxGeometry(1.4, 0.12, depth * 0.65),
+          darkMetal
+        );
+        platform.position.set(
+          side * 6.45,
+          height * randomRange(0.42, 0.68),
+          z
+        );
+        platform.castShadow = true;
+        scene.add(platform);
+
+        for (let rail = 0; rail < 6; rail++) {
+          const bar = new THREE.Mesh(
+            new THREE.BoxGeometry(0.045, 1.1, 0.045),
+            pipeMaterial
+          );
+          bar.position.set(
+            side * 6.95,
+            platform.position.y + 0.55,
+            z - depth * 0.28 + rail * depth * 0.11
+          );
+          scene.add(bar);
+        }
+      }
+    }
+
+    const buildingColors = [
+      0x0d1219,
+      0x151922,
+      0x101922,
+      0x19141d,
+      0x121b1b
+    ];
+
+    for (const side of [-1, 1]) {
+      let z = 12;
+      while (z > -78) {
+        const depth = randomRange(7, 12);
+        const width = randomRange(7, 13);
+        const height = randomRange(13, 29);
+        makeBuilding(
+          side,
+          z - depth / 2,
+          width,
+          depth,
+          height,
+          buildingColors[Math.floor(random() * buildingColors.length)]
+        );
+        z -= depth + randomRange(0.15, 0.65);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Canvas-generated neon signs
+    // -------------------------------------------------------------------------
+
+    function createSignTexture(text, color, vertical = false, subtitle = "") {
+      const canvas = document.createElement("canvas");
+      canvas.width = vertical ? 256 : 768;
+      canvas.height = vertical ? 768 : 256;
+
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, canvas.width, canvas.height);
+
+      const cssColor = `#${new THREE.Color(color).getHexString()}`;
+
+      context.shadowColor = cssColor;
+      context.shadowBlur = 28;
+      context.strokeStyle = cssColor;
+      context.fillStyle = cssColor;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+
+      if (vertical) {
+        const chars = [...text];
+        const step = canvas.height / (chars.length + 1);
+        context.font = `700 ${chars.length > 5 ? 72 : 92}px sans-serif`;
+
+        chars.forEach((character, index) => {
+          context.fillText(character, canvas.width / 2, step * (index + 1));
+        });
+      } else {
+        context.font = "700 90px sans-serif";
+        context.fillText(text, canvas.width / 2, 104);
+
+        if (subtitle) {
+          context.shadowBlur = 12;
+          context.font = "600 28px sans-serif";
+          context.fillText(subtitle, canvas.width / 2, 183);
+        }
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      return texture;
+    }
+
+    function addNeonSign(side, z, text, color, vertical = false, subtitle = "") {
+      const texture = createSignTexture(text, color, vertical, subtitle);
+      const width = vertical ? 0.8 : randomRange(3.2, 5.2);
+      const height = vertical ? randomRange(4.8, 7.8) : randomRange(1.15, 2.0);
+      const y = vertical ? randomRange(5.4, 8.2) : randomRange(4.4, 8.5);
+
+      const signMaterial = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide
+      });
+
+      const sign = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, height),
+        signMaterial
+      );
+
+      sign.position.set(side * 6.92, y, z);
+      sign.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+      scene.add(sign);
+
+      // A faint backing plate gives the sign physical depth.
+      const backing = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, height + 0.18, width + 0.18),
+        darkMetal
+      );
+      backing.position.set(side * 7.02, y, z);
+      scene.add(backing);
+
+      const glow = new THREE.PointLight(color, 8, 9, 2);
+      glow.position.set(side * 6.15, y, z);
+      scene.add(glow);
+
+      // Mirrored sign texture on the wet road.
+      const reflectionMaterial = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        opacity: 0.17,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide
+      });
+
+      const reflection = new THREE.Mesh(
+        new THREE.PlaneGeometry(width * 0.95, height * 2.25),
+        reflectionMaterial
+      );
+      reflection.rotation.x = -Math.PI / 2;
+      reflection.rotation.z = Math.PI;
+      reflection.position.set(
+        side * randomRange(3.9, 5.8),
+        0.031,
+        z + randomRange(-1.5, 1.5)
+      );
+      scene.add(reflection);
+
+      // Broken vertical reflection streak.
+      const streak = new THREE.Mesh(
+        new THREE.PlaneGeometry(
+          randomRange(0.1, 0.42),
+          randomRange(2.5, 7.5)
+        ),
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.1,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        })
+      );
+      streak.rotation.x = -Math.PI / 2;
+      streak.rotation.z = randomRange(-0.12, 0.12);
+      streak.position.set(
+        side * randomRange(3.6, 5.9),
+        0.035,
+        z + randomRange(-2, 2)
+      );
+      scene.add(streak);
+
+      return { sign, glow, reflectionMaterial };
+    }
+
+    const signs = [];
+
+    signs.push(addNeonSign(-1, 4, "夢", 0xff168f, true));
+    signs.push(addNeonSign(1, 1, "CYBER", 0x00eaff, false, "NOODLES // 24 HOURS"));
+    signs.push(addNeonSign(-1, -7, "HOTEL", 0x9b5cff, false, "VACANCY"));
+    signs.push(addNeonSign(1, -11, "VOID", 0x00ff9d, true));
+    signs.push(addNeonSign(-1, -18, "RAMEN", 0xffb52e, false, "Synthetic broth"));
+    signs.push(addNeonSign(1, -25, "電脳", 0xff304f, true));
+    signs.push(addNeonSign(-1, -34, "OPEN", 0x00eaff, false, "ALL NIGHT"));
+    signs.push(addNeonSign(1, -42, "DRIFT", 0x9b5cff, false, "Neural lounge"));
+    signs.push(addNeonSign(-1, -51, "夢", 0xff168f, true));
+    signs.push(addNeonSign(1, -62, "404", 0x00ff9d, false, "ENTER IF LOST"));
+
+    // -------------------------------------------------------------------------
+    // Street details: lamps, pipes, vents, cables, vending machine
+    // -------------------------------------------------------------------------
+
+    for (const side of [-1, 1]) {
+      for (let z = 5; z > -75; z -= randomRange(7, 12)) {
+        const lampColor = neonColors[Math.floor(random() * neonColors.length)];
+
+        const lamp = new THREE.Mesh(
+          new THREE.BoxGeometry(0.08, 0.08, 1.3),
+          emissiveMaterial(lampColor, 4)
+        );
+        lamp.position.set(side * 6.75, 3.8, z);
+        scene.add(lamp);
+
+        const lampLight = new THREE.PointLight(lampColor, 2.8, 5.5, 2);
+        lampLight.position.set(side * 6.2, 3.6, z);
+        scene.add(lampLight);
+
+        // Wall-mounted ventilation box.
+        const vent = new THREE.Mesh(
+          new THREE.BoxGeometry(0.55, 0.8, 1.2),
+          darkMetal
+        );
+        vent.position.set(side * 6.55, randomRange(2, 4), z - 2);
+        vent.castShadow = true;
+        scene.add(vent);
+
+        for (let slit = 0; slit < 5; slit++) {
+          const slitMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(0.03, 0.035, 0.86),
+            new THREE.MeshBasicMaterial({ color: 0x030609 })
+          );
+          slitMesh.position.set(
+            side * 6.25,
+            vent.position.y - 0.25 + slit * 0.12,
+            vent.position.z
+          );
+          scene.add(slitMesh);
+        }
+
+        // Horizontal utility pipe.
+        const pipe = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.09, 0.09, depthOfSection(z), 10),
+          pipeMaterial
+        );
+        pipe.rotation.x = Math.PI / 2;
+        pipe.position.set(side * 6.8, randomRange(4.8, 7.8), z - 3);
+        scene.add(pipe);
+      }
+    }
+
+    function depthOfSection(z) {
+      return 7;
+    }
+
+    // Hanging cables across the alley.
+    const cableMaterial = new THREE.LineBasicMaterial({
+      color: 0x020407,
+      transparent: true,
+      opacity: 0.9
+    });
+
+    for (let z = 4; z > -72; z -= randomRange(7, 11)) {
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-7, randomRange(6, 9), z),
+        new THREE.Vector3(-2, randomRange(4.7, 6.2), z + 0.2),
+        new THREE.Vector3(2, randomRange(5.2, 6.7), z - 0.15),
+        new THREE.Vector3(7, randomRange(6.5, 9), z)
+      ]);
+
+      const geometry = new THREE.BufferGeometry().setFromPoints(
+        curve.getPoints(32)
+      );
+      scene.add(new THREE.Line(geometry, cableMaterial));
+    }
+
+    // -------------------------------------------------------------------------
+    // Vending machine
+    // -------------------------------------------------------------------------
+
+    const vendingGroup = new THREE.Group();
+    vendingGroup.position.set(-6.15, 0, -15);
+
+    const vendingBody = new THREE.Mesh(
+      new THREE.BoxGeometry(1.15, 2.65, 0.72),
+      new THREE.MeshStandardMaterial({
+        color: 0x1a2431,
+        roughness: 0.38,
+        metalness: 0.62
+      })
+    );
+    vendingBody.position.y = 1.325;
+    vendingBody.castShadow = true;
+    vendingGroup.add(vendingBody);
+
+    const vendingGlow = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.84, 1.42),
+      new THREE.MeshBasicMaterial({
+        map: createSignTexture("BYTE", 0x00eaff, false, "ICE / SODA"),
+        transparent: true,
+        blending: THREE.AdditiveBlending
+      })
+    );
+    vendingGlow.position.set(0, 1.55, 0.37);
+    vendingGroup.add(vendingGlow);
+
+    const vendingLight = new THREE.PointLight(0x00eaff, 4, 5, 2);
+    vendingLight.position.set(0, 1.8, 1);
+    vendingGroup.add(vendingLight);
+
+    scene.add(vendingGroup);
+
+    // -------------------------------------------------------------------------
+    // Steam sprite texture and emitters
+    // -------------------------------------------------------------------------
+
+    function createSteamTexture() {
+      const canvas = document.createElement("canvas");
+      canvas.width = 128;
+      canvas.height = 128;
+
+      const context = canvas.getContext("2d");
+      const gradient = context.createRadialGradient(
+        64, 64, 0,
+        64, 64, 64
+      );
+      gradient.addColorStop(0, "rgba(220,235,245,0.7)");
+      gradient.addColorStop(0.35, "rgba(190,215,230,0.35)");
+      gradient.addColorStop(1, "rgba(160,190,210,0)");
+
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, 128, 128);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    }
+
+    const steamTexture = createSteamTexture();
+    const steamParticles = [];
+
+    const emitters = [
+      [-5.9, 0.2, 2.5],
+      [5.7, 0.15, -8.5],
+      [-5.7, 0.25, -29],
+      [5.6, 0.1, -48],
+      [-5.9, 0.2, -64]
+    ];
+
+    for (const emitter of emitters) {
+      for (let i = 0; i < 18; i++) {
+        const material = new THREE.SpriteMaterial({
+          map: steamTexture,
+          color: 0xb7cad4,
+          transparent: true,
+          opacity: randomRange(0.06, 0.18),
+          depthWrite: false,
+          blending: THREE.NormalBlending
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.position.set(
+          emitter[0] + randomRange(-0.25, 0.25),
+          emitter[1] + random() * 0.3,
+          emitter[2] + randomRange(-0.25, 0.25)
+        );
+
+        const scale = randomRange(0.65, 1.4);
+        sprite.scale.set(scale, scale, 1);
+        scene.add(sprite);
+
+        steamParticles.push({
+          sprite,
+          speed: randomRange(0.18, 0.5),
+          drift: randomRange(-0.12, 0.12),
+          phase: random() * Math.PI * 2
+        });
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Rain as moving line segments
+    // -------------------------------------------------------------------------
+
+    const rainCount = 1250;
+    const rainPositions = new Float32Array(rainCount * 6);
+    const rainSpeed = new Float32Array(rainCount);
+    const rainLength = new Float32Array(rainCount);
+
+    function resetRain(index, initial = false) {
+      const offset = index * 6;
+      const x = randomRange(-12, 12);
+      const y = initial ? randomRange(0, 25) : randomRange(18, 25);
+      const z = randomRange(-85, 18);
+      const length = randomRange(0.35, 0.85);
+      const dx = length * 0.12;
+
+      rainPositions[offset] = x;
+      rainPositions[offset + 1] = y;
+      rainPositions[offset + 2] = z;
+      rainPositions[offset + 3] = x - dx;
+      rainPositions[offset + 4] = y - length;
+      rainPositions[offset + 5] = z + 0.04;
+
+      rainSpeed[index] = randomRange(12, 22);
+      rainLength[index] = length;
+    }
+
+    for (let i = 0; i < rainCount; i++) {
+      resetRain(i, true);
+    }
+
+    const rainGeometry = new THREE.BufferGeometry();
+    rainGeometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(rainPositions, 3)
+    );
+
+    const rain = new THREE.LineSegments(
+      rainGeometry,
+      new THREE.LineBasicMaterial({
+        color: 0x91bed0,
+        transparent: true,
+        opacity: 0.34,
+        depthWrite: false
+      })
+    );
+    rain.frustumCulled = false;
+    scene.add(rain);
+
+    // -------------------------------------------------------------------------
+    // Ground light smears and debris
+    // -------------------------------------------------------------------------
+
+    for (let i = 0; i < 25; i++) {
+      const color = neonColors[Math.floor(random() * neonColors.length)];
+
+      const smear = new THREE.Mesh(
+        new THREE.PlaneGeometry(
+          randomRange(0.12, 0.55),
+          randomRange(1.2, 5.5)
+        ),
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: randomRange(0.018, 0.055),
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        })
+      );
+
+      smear.rotation.x = -Math.PI / 2;
+      smear.rotation.z = randomRange(-0.2, 0.2);
+      smear.position.set(
+        randomRange(-6.4, 6.4),
+        0.029,
+        randomRange(-74, 12)
+      );
+      scene.add(smear);
+    }
+
+    const trashMaterial = new THREE.MeshStandardMaterial({
+      color: 0x151b20,
+      roughness: 0.9,
+      metalness: 0.08
+    });
+
+    for (let i = 0; i < 55; i++) {
+      const debris = new THREE.Mesh(
+        new THREE.BoxGeometry(
+          randomRange(0.08, 0.38),
+          randomRange(0.02, 0.1),
+          randomRange(0.1, 0.5)
+        ),
+        trashMaterial
+      );
+
+      debris.position.set(
+        randomRange(-6.6, 6.6),
+        0.04,
+        randomRange(-72, 12)
+      );
+      debris.rotation.y = random() * Math.PI;
+      scene.add(debris);
+    }
+
+    // -------------------------------------------------------------------------
+    // Direct camera controls
+    // -------------------------------------------------------------------------
+
+    const cameraTarget = new THREE.Vector3(0, 3.2, -12);
+    let yaw = 0;
+    let pitch = -0.035;
+    let distance = 15;
+    let dragging = false;
+    let previousX = 0;
+    let previousY = 0;
+
+    function updateCamera() {
+      const horizontal = Math.cos(pitch) * distance;
+      camera.position.set(
+        cameraTarget.x + Math.sin(yaw) * horizontal,
+        cameraTarget.y - Math.sin(pitch) * distance,
+        cameraTarget.z + Math.cos(yaw) * horizontal
+      );
+      camera.lookAt(cameraTarget);
+    }
+
+    renderer.domElement.addEventListener("pointerdown", (event) => {
+      dragging = true;
+      previousX = event.clientX;
+      previousY = event.clientY;
+      renderer.domElement.setPointerCapture(event.pointerId);
+    });
+
+    renderer.domElement.addEventListener("pointermove", (event) => {
+      if (!dragging) return;
+
+      const deltaX = event.clientX - previousX;
+      const deltaY = event.clientY - previousY;
+
+      yaw -= deltaX * 0.004;
+      pitch -= deltaY * 0.003;
+      pitch = THREE.MathUtils.clamp(pitch, -0.8, 0.45);
+
+      previousX = event.clientX;
+      previousY = event.clientY;
+      updateCamera();
+    });
+
+    renderer.domElement.addEventListener("pointerup", (event) => {
+      dragging = false;
+      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+        renderer.domElement.releasePointerCapture(event.pointerId);
+      }
+    });
+
+    renderer.domElement.addEventListener("pointercancel", () => {
+      dragging = false;
+    });
+
+    renderer.domElement.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        distance = THREE.MathUtils.clamp(
+          distance + event.deltaY * 0.012,
+          6,
+          30
+        );
+        updateCamera();
+      },
+      { passive: false }
+    );
+
+    let touchDistance = 0;
+
+    renderer.domElement.addEventListener("touchstart", (event) => {
+      if (event.touches.length === 2) {
+        touchDistance = Math.hypot(
+          event.touches[0].clientX - event.touches[1].clientX,
+          event.touches[0].clientY - event.touches[1].clientY
+        );
+      }
+    }, { passive: true });
+
+    renderer.domElement.addEventListener("touchmove", (event) => {
+      if (event.touches.length === 2) {
+        event.preventDefault();
+
+        const newDistance = Math.hypot(
+          event.touches[0].clientX - event.touches[1].clientX,
+          event.touches[0].clientY - event.touches[1].clientY
+        );
+
+        distance = THREE.MathUtils.clamp(
+          distance + (touchDistance - newDistance) * 0.035,
+          6,
+          30
+        );
+
+        touchDistance = newDistance;
+        updateCamera();
+      }
+    }, { passive: false });
+
+    updateCamera();
+
+    // -------------------------------------------------------------------------
+    // Animation
+    // -------------------------------------------------------------------------
+
+    const clock = new THREE.Clock();
+    let frame = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const elapsed = clock.getElapsedTime();
+      const delta = Math.min(clock.getDelta(), 0.05);
+      frame++;
+
+      // Update rain.
+      for (let i = 0; i < rainCount; i++) {
+        const offset = i * 6;
+        const fall = rainSpeed[i] * delta;
+
+        rainPositions[offset + 1] -= fall;
+        rainPositions[offset + 4] -= fall;
+
+        if (rainPositions[offset + 1] < 0) {
+          resetRain(i, false);
+        }
+      }
+
+      rainGeometry.attributes.position.needsUpdate = true;
+
+      // Rising, curling steam.
+      for (const particle of steamParticles) {
+        particle.sprite.position.y += particle.speed * delta;
+        particle.sprite.position.x +=
+          particle.drift * delta +
+          Math.sin(elapsed * 0.8 + particle.phase) * 0.003;
+
+        particle.sprite.material.opacity *= 0.9992;
+
+        if (particle.sprite.position.y > 5.2) {
+          particle.sprite.position.y = 0.2;
+          particle.sprite.position.x = randomRange(-6.4, 6.4);
+          particle.sprite.material.opacity = randomRange(0.08, 0.17);
+        }
+      }
+
+      // Gentle neon variation.
+      signs.forEach((entry, index) => {
+        const flicker = 0.91 + Math.sin(elapsed * 9 + index * 2.1) * 0.045;
+        const rareFlicker = Math.random() > 0.992 ? 0.35 : 1;
+        entry.glow.intensity = 8 * flicker * rareFlicker;
+        entry.reflectionMaterial.opacity =
+          0.17 * flicker * rareFlicker;
+      });
+
+      // Very subtle camera drift while idle.
+      if (!dragging) {
+        yaw += Math.sin(elapsed * 0.13) * 0.00008;
+      }
+
+      updateCamera();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // -------------------------------------------------------------------------
+    // Resize
+    // -------------------------------------------------------------------------
+
+    addEventListener("resize", () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+    });
+  </script>
+</body>
+</html>
