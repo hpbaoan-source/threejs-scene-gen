@@ -155,6 +155,37 @@ one to six dollars.
 
 ---
 
+## Publishing the gallery
+
+`docs/` is a static gallery (`index.html` + `scenes/*.html` + `shots/*.png`).
+Rebuild it from `examples/` and `results/` with `python3 scripts/build_gallery.py`.
+
+**ngrok is the default publishing path.** It needs no account setup, no DNS and
+no changes to any production service:
+
+```bash
+bash scripts/serve_gallery.sh     # static server on :8899 + ngrok tunnel
+cat /home/anhuynh/workspace/gallery-url.txt
+```
+
+The free ngrok tier hands out a random subdomain, so the URL changes whenever the
+tunnel restarts. `scripts/gallery_watchdog.sh` (registered in the OS crontab,
+every 15 minutes) restarts the server and the tunnel if the URL stops
+answering, and writes the fresh URL to `gallery-url.txt`.
+
+GitHub Pages is the durable alternative. The workflow in
+`.github/workflows/pages.yml` is already committed, but it cannot run yet: the
+fine-grained PAT has no **Administration: write** permission, so
+`POST /repos/{owner}/{repo}/pages` returns 403 and `actions/configure-pages`
+with `enablement: true` fails with "Resource not accessible by integration".
+Grant that permission and the workflow publishes on its own.
+
+**Do not publish to `moon.id.vn/leaf/`** — that service was removed on
+2026-11-02. It could not have worked anyway: Moon's own API holds port 3030,
+so `/leaf/` proxied back to the API itself.
+
+---
+
 ## Layout
 
 ```
@@ -169,9 +200,15 @@ scene_gen/
 scripts/
   render_scene.mjs    headless Chromium: render, console errors, frame stats
   make_sheet.mjs      packs renders into one comparison sheet
+  build_gallery.py    rebuilds docs/ (static gallery) from examples/ + results/
+  serve_gallery.sh    static server + ngrok tunnel
+  gallery_watchdog.sh restarts the tunnel if the public URL dies
+  check_gallery.mjs   Playwright check: every image loads, every scene renders
+  enable_pages.py     checks/enables GitHub Pages via the GitHub API
 tests/                unit tests for the deterministic parts
 examples/             example scenes and their renders
 results/              recorded runs
+docs/                 the published gallery (GitHub Pages source)
 ```
 
 The Python side has no third-party dependencies. Frame statistics are computed
