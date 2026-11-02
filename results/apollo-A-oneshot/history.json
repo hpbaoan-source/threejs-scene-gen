@@ -1,0 +1,31 @@
+{
+  "prompt": "an Apollo spacecraft standing on its launch pad at dawn, the tall umbilical service tower beside it, xenon floodlights on the pad, steam venting from the flame trench, a cinematic low-angle wide shot, the sun just rising over a clear sky",
+  "workdir": "/home/anhuynh/work/threejs-scene-gen/results/apollo-A-oneshot",
+  "stop_reason": "accepted at attempt 0",
+  "total_seconds": 139.8,
+  "total_cost_usd": 0.008216,
+  "attempts": [
+    {
+      "index": 0,
+      "html_path": "/home/anhuynh/work/threejs-scene-gen/results/apollo-A-oneshot/scene.html",
+      "png_path": "/home/anhuynh/work/threejs-scene-gen/results/apollo-A-oneshot/attempt-0.png",
+      "seconds": 139.8,
+      "static_problems": [],
+      "console_errors": 0,
+      "console_errors_detail": [],
+      "frame_gates": [],
+      "image": null,
+      "review": {},
+      "accepted": true,
+      "reason": "one-shot: qua static gates",
+      "tokens": {
+        "output_tokens": 13639,
+        "input_tokens": 202,
+        "thinking_tokens": 2954
+      }
+    }
+  ],
+  "best_attempt": 0,
+  "final_html": "/home/anhuynh/work/threejs-scene-gen/results/apollo-A-oneshot/scene.html",
+  "final_png": "/home/anhuynh/work/threejs-scene-gen/results/apollo-A-oneshot/attempt-0.png"
+}

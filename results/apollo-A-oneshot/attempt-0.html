@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apollo — Pad 39A at Dawn</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #9bbbd2;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    .hud {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      color: #eef7fb;
+      text-shadow: 0 1px 8px rgba(0, 16, 28, .55);
+    }
+
+    .panel {
+      position: absolute;
+      border: 1px solid rgba(205, 235, 247, .26);
+      background: linear-gradient(135deg, rgba(5, 19, 29, .62), rgba(5, 19, 29, .28));
+      box-shadow: 0 10px 30px rgba(0, 15, 25, .15);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .title {
+      top: 22px;
+      left: 22px;
+      min-width: 260px;
+      padding: 13px 16px 12px;
+      border-left: 3px solid #a9dff1;
+    }
+
+    .eyebrow {
+      margin-bottom: 5px;
+      color: #a9dff1;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .22em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(17px, 2.1vw, 25px);
+      font-weight: 500;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      margin-top: 5px;
+      color: rgba(232, 246, 251, .72);
+      font-size: 11px;
+      letter-spacing: .09em;
+    }
+
+    .status {
+      top: 22px;
+      right: 22px;
+      width: 212px;
+      padding: 12px 14px;
+      font-size: 10px;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(220, 242, 250, .1);
+    }
+
+    .row:last-child { border-bottom: 0; }
+
+    .label { color: rgba(224, 241, 248, .58); }
+    .value { color: #dff7ff; font-variant-numeric: tabular-nums; }
+    .live { color: #9ee8ba; }
+
+    .live::before {
+      content: "";
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      margin: 0 7px 1px 0;
+      border-radius: 50%;
+      background: #9ee8ba;
+      box-shadow: 0 0 8px #9ee8ba;
+    }
+
+    .footer {
+      position: absolute;
+      left: 22px;
+      bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 9px 12px;
+      color: rgba(235, 248, 252, .76);
+      font-size: 10px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .key {
+      min-width: 24px;
+      padding: 3px 5px;
+      border: 1px solid rgba(225, 244, 251, .28);
+      background: rgba(255, 255, 255, .07);
+      color: #fff;
+      text-align: center;
+      font-size: 9px;
+      letter-spacing: 0;
+    }
+
+    .timecode {
+      position: absolute;
+      right: 22px;
+      bottom: 20px;
+      padding: 8px 10px;
+      color: rgba(239, 250, 253, .72);
+      font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: .08em;
+    }
+
+    .reticle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 18px;
+      height: 18px;
+      transform: translate(-50%, -50%);
+      opacity: .34;
+    }
+
+    .reticle::before,
+    .reticle::after {
+      content: "";
+      position: absolute;
+      background: rgba(230, 248, 255, .8);
+    }
+
+    .reticle::before { top: 8px; left: 0; width: 18px; height: 1px; }
+    .reticle::after { top: 0; left: 8px; width: 1px; height: 18px; }
+
+    #loading {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      background: #9bbbd2;
+      color: #16384a;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .2em;
+      text-transform: uppercase;
+      transition: opacity .6s ease;
+    }
+
+    #loading.hidden { opacity: 0; pointer-events: none; }
+
+    @media (max-width: 700px) {
+      .title { top: 12px; left: 12px; min-width: 0; }
+      .status { display: none; }
+      .footer { left: 12px; bottom: 12px; }
+      .footer .desktop { display: none; }
+      .timecode { right: 12px; bottom: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">Initializing launch complex…</div>
+
+  <div class="hud">
+    <section class="panel title">
+      <div class="eyebrow">Kennedy Space Center · Pad 39A</div>
+      <h1>Apollo · T-minus 00:00:12</h1>
+      <div class="subtitle">Orion launch complex / dawn configuration</div>
+    </section>
+
+    <section class="panel status">
+      <div class="row"><span class="label">Vehicle</span><span class="value">Apollo/Saturn V</span></div>
+      <div class="row"><span class="label">Propellant</span><span class="value">LOX + RP-1</span></div>
+      <div class="row"><span class="label">Tower</span><span class="value">Hardwired</span></div>
+      <div class="row"><span class="label">Pad state</span><span class="value live">Go</span></div>
+    </section>
+
+    <div class="reticle"></div>
+
+    <div class="panel footer">
+      <span class="key">Drag</span><span class="desktop">Orbit camera</span>
+      <span class="key">Wheel</span><span class="desktop">Zoom</span>
+      <span class="key">R</span><span class="desktop">Reset view</span>
+    </div>
+
+    <div class="panel timecode" id="timecode">05:42:18 EDT</div>
+  </div>
+
+  <script type="module">
+    import * as THREE from "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js";
+
+    const loading = document.getElementById("loading");
+    const timecode = document.getElementById("timecode");
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0xb8cad1, 0.0027);
+
+    const camera = new THREE.PerspectiveCamera(43, innerWidth / innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+
+    const world = new THREE.Group();
+    scene.add(world);
+
+    const hemi = new THREE.HemisphereLight(0xc8e6ff, 0x786d5d, 1.45);
+    scene.add(hemi);
+
+    const ambient = new THREE.AmbientLight(0xd9e9f4, 0.34);
+    scene.add(ambient);
+
+    const sun = new THREE.DirectionalLight(0xffd1a1, 3.35);
+    sun.position.set(90, 38, -125);
+    sun.target.position.set(-2, 17, 0);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -65;
+    sun.shadow.camera.right = 65;
+    sun.shadow.camera.top = 72;
+    sun.shadow.camera.bottom = -30;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 300;
+    sun.shadow.bias = -0.00025;
+    sun.shadow.normalBias = 0.025;
+    scene.add(sun, sun.target);
+
+    const fill = new THREE.DirectionalLight(0xb8d9f3, 0.75);
+    fill.position.set(-55, 45, 65);
+    scene.add(fill);
+
+    // ------------------------------------------------------------------
+    // Procedural textures
+    // ------------------------------------------------------------------
+
+    function seededRandom(seed) {
+      let value = seed >>> 0;
+      return () => {
+        value = (value * 1664525 + 1013904223) >>> 0;
+        return value / 4294967296;
+      };
+    }
+
+    function makeConcreteTexture() {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1024;
+      const ctx = canvas.getContext("2d");
+      const rnd = seededRandom(1972);
+
+      ctx.fillStyle = "#737a7c";
+      ctx.fillRect(0, 0, 1024, 1024);
+
+      for (let i = 0; i < 22000; i++) {
+        const gray = Math.floor(80 + rnd() * 75);
+        const alpha = 0.04 + rnd() * 0.13;
+        ctx.fillStyle = `rgba(${gray},${gray + 3},${gray + 4},${alpha})`;
+        const size = rnd() * 3 + 0.5;
+        ctx.fillRect(rnd() * 1024, rnd() * 1024, size, size);
+      }
+
+      ctx.strokeStyle = "rgba(35,42,45,.28)";
+      ctx.lineWidth = 3;
+      for (let y = 0; y <= 1024; y += 128) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(1024, y);
+        ctx.stroke();
+      }
+      for (let x = 0; x <= 1024; x += 256) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, 1024);
+        ctx.stroke();
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(18, 18);
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return texture;
+    }
+
+    function makeGlowTexture() {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 128;
+      const ctx = canvas.getContext("2d");
+      const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      g.addColorStop(0, "rgba(255,255,255,1)");
+      g.addColorStop(0.12, "rgba(230,250,255,.95)");
+      g.addColorStop(0.35, "rgba(170,230,255,.35)");
+      g.addColorStop(1, "rgba(120,210,255,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 128, 128);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    }
+
+    function makeSteamTexture() {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 256;
+      const ctx = canvas.getContext("2d");
+      const rnd = seededRandom(99);
+      ctx.clearRect(0, 0, 256, 256);
+
+      for (let i = 0; i < 55; i++) {
+        const x = 128 + (rnd() - 0.5) * 125;
+        const y = 128 + (rnd() - 0.5) * 125;
+        const r = 24 + rnd() * 58;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, "rgba(255,255,255,.16)");
+        g.addColorStop(0.48, "rgba(245,251,255,.08)");
+        g.addColorStop(1, "rgba(235,248,255,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    }
+
+    function makeDecalTexture(kind) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 512;
+      canvas.height = 1024;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, 512, 1024);
+
+      if (kind === "usa") {
+        ctx.save();
+        ctx.translate(256, 512);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillStyle = "#11191d";
+        ctx.font = "900 205px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("USA", 0, 0);
+        ctx.restore();
+      }
+
+      if (kind === "flag") {
+        for (let row = 0; row < 13; row++) {
+          ctx.fillStyle = row % 2 ? "#f4f4ef" : "#b72935";
+          ctx.fillRect(0, row * 30, 330, 30);
+        }
+        ctx.fillStyle = "#193b67";
+        ctx.fillRect(0, 0, 145, 210);
+        ctx.fillStyle = "#fff";
+        for (let i = 0; i < 25; i++) {
+          ctx.fillRect(15 + (i % 5) * 25, 18 + Math.floor(i / 5) * 37, 9, 9);
+        }
+      }
+
+      if (kind === "nasa") {
+        ctx.fillStyle = "#153f78";
+        ctx.beginPath();
+        ctx.arc(256, 512, 210, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#f4f1df";
+        ctx.beginPath();
+        ctx.arc(256, 512, 153, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#173f78";
+        ctx.font = "bold 116px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("NASA", 256, 500);
+        ctx.strokeStyle = "#d72c35";
+        ctx.lineWidth = 19;
+        ctx.beginPath();
+        ctx.moveTo(130, 515);
+        ctx.bezierCurveTo(250, 630, 330, 570, 402, 478);
+        ctx.stroke();
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return texture;
+    }
+
+    // ------------------------------------------------------------------
+    // Materials
+    // ------------------------------------------------------------------
+
+    const mat = {
+      concrete: new THREE.MeshStandardMaterial({ color: 0x777b7c, roughness: 0.93, map: makeConcreteTexture() }),
+      darkConcrete: new THREE.MeshStandardMaterial({ color: 0x343a3d, roughness: 0.96 }),
+      trench: new THREE.MeshStandardMaterial({ color: 0x171b1e, roughness: 0.94 }),
+      white: new THREE.MeshStandardMaterial({ color: 0xf1f0e8, roughness: 0.52, metalness: 0.06 }),
+      offWhite: new THREE.MeshStandardMaterial({ color: 0xd8d9d2, roughness: 0.62, metalness: 0.08 }),
+      black: new THREE.MeshStandardMaterial({ color: 0x111519, roughness: 0.7 }),
+      metal: new THREE.MeshStandardMaterial({ color: 0x7a8184, roughness: 0.38, metalness: 0.76 }),
+      darkMetal: new THREE.MeshStandardMaterial({ color: 0x252a2c, roughness: 0.42, metalness: 0.82 }),
+      red: new THREE.MeshStandardMaterial({ color: 0xb92d2d, roughness: 0.62, metalness: 0.38 }),
+      redDark: new THREE.MeshStandardMaterial({ color: 0x751c22, roughness: 0.72, metalness: 0.28 }),
+      yellow: new THREE.MeshStandardMaterial({ color: 0xd9a326, roughness: 0.62, metalness: 0.18 }),
+      blue: new THREE.MeshStandardMaterial({ color: 0x2376a0, roughness: 0.48, metalness: 0.22 }),
+      glass: new THREE.MeshStandardMaterial({ color: 0x5cbce6, emissive: 0x83dcff, emissiveIntensity: 2.5, roughness: 0.18 }),
+    };
+
+    function mesh(geometry, material, x = 0, y = 0, z = 0, parent = world) {
+      const object = new THREE.Mesh(geometry, material);
+      object.position.set(x, y, z);
+      object.castShadow = true;
+      object.receiveShadow = true;
+      parent.add(object);
+      return object;
+    }
+
+    function box(w, h, d, material, x, y, z, parent = world) {
+      return mesh(new THREE.BoxGeometry(w, h, d), material, x, y, z, parent);
+    }
+
+    function cylinder(rTop, rBottom, h, material, x, y, z, segments = 48, parent = world) {
+      return mesh(new THREE.CylinderGeometry(rTop, rBottom, h, segments), material, x, y, z, parent);
+    }
+
+    function beam(a, b, radius, material, parent = world, sides = 7) {
+      const av = new THREE.Vector3(...a);
+      const bv = new THREE.Vector3(...b);
+      const direction = bv.clone().sub(av);
+      const length = direction.length();
+      const object = mesh(new THREE.CylinderGeometry(radius, radius, length, sides), material, 0, 0, 0, parent);
+      object.position.copy(av).add(bv).multiplyScalar(0.5);
+      object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+      return object;
+    }
+
+    // ------------------------------------------------------------------
+    // Dawn sky
+    // ------------------------------------------------------------------
+
+    const skyMaterial = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      uniforms: {
+        topColor: { value: new THREE.Color(0x4f87b4) },
+        horizonColor: { value: new THREE.Color(0xf0c5a5) },
+        lowColor: { value: new THREE.Color(0xb6c5c9) }
+      },
+      vertexShader: `
+        varying vec3 vWorld;
+        void main() {
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vWorld = worldPosition.xyz;
+          gl_Position = projectionMatrix * viewMatrix * worldPosition;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vWorld;
+        uniform vec3 topColor;
+        uniform vec3 horizonColor;
+        uniform vec3 lowColor;
+        void main() {
+          float h = normalize(vWorld).y;
+          vec3 low = mix(lowColor, horizonColor, smoothstep(-0.04, 0.12, h));
+          vec3 col = mix(low, topColor, smoothstep(0.04, 0.72, h));
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `
+    });
+
+    const sky = mesh(new THREE.SphereGeometry(500, 40, 24), skyMaterial, 0, 0, 0);
+    sky.castShadow = false;
+    sky.receiveShadow = false;
+
+    const glowTexture = makeGlowTexture();
+
+    function makeGlow(color, opacity, size) {
+      const material = new THREE.SpriteMaterial({
+        map: glowTexture,
+        color,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(size, size, 1);
+      return sprite;
+    }
+
+    const sunGlow = makeGlow(0xffbd74, 0.8, 55);
+    sunGlow.position.set(115, 32, -170);
+    scene.add(sunGlow);
+
+    const sunDisk = makeGlow(0xffe6b2, 1, 16);
+    sunDisk.position.set(115, 32, -169);
+    scene.add(sunDisk);
+
+    // ------------------------------------------------------------------
+    // Ground, flame trench, and launch deck
+    // ------------------------------------------------------------------
+
+    const ground = mesh(new THREE.PlaneGeometry(700, 700), mat.concrete, 0, -1.42, 0);
+    ground.rotation.x = -Math.PI / 2;
+    ground.castShadow = false;
+
+    // Trench floor and retaining walls.
+    box(7.5, 0.45, 22, mat.trench, -4, -1.05, 0);
+    box(0.55, 3.1, 22, mat.darkConcrete, -7.9, -0.25, 0);
+    box(0.55, 3.1, 22, mat.darkConcrete, -0.1, -0.25, 0);
+
+    // Deck slabs arranged around the open flame trench.
+    box(8.2, 1.45, 31, mat.concrete, -11.9, -0.28, 0);
+    box(16.1, 1.45, 31, mat.concrete, 8.0, -0.28, 0);
+    box(7.5, 1.45, 7, mat.concrete, -4, -0.28, -12);
+    box(7.5, 1.45, 7, mat.concrete, -4, -0.28, 12);
+
+    // Trench edge safety rails.
+    for (const z of [-9.1, 9.1]) {
+      for (let i = 0; i < 5; i++) {
+        const x = -8.1 + i * 4.05;
+        cylinder(0.07, 0.07, 1.2, mat.yellow, x, 0.65, z, 8);
+      }
+      beam([-8.2, 1.18, z], [8.1, 1.18, z], 0.065, mat.yellow);
+    }
+
+    // Service stairs and handrails.
+    for (let i = 0; i < 8; i++) {
+      box(2.1, 0.18, 0.65, mat.metal, 10.5, 0.25 + i * 0.32, 9.8 - i * 0.42);
+    }
+    beam([9.45, 1.1, 10.15], [9.45, 3.5, 6.95], 0.06, mat.yellow);
+    beam([11.55, 1.1, 10.15], [11.55, 3.5, 6.95], 0.06, mat.yellow);
+
+    // ------------------------------------------------------------------
+    // Apollo / Saturn-class launch vehicle
+    // ------------------------------------------------------------------
+
+    const rocket = new THREE.Group();
+    rocket.position.x = -4;
+    world.add(rocket);
+
+    cylinder(3.35, 3.35, 18.2, mat.white, 0, 10.1, 0, 64, rocket);
+    cylinder(3.45, 3.45, 0.48, mat.black, 0, 2.05, 0, 64, rocket);
+    cylinder(3.37, 3.37, 0.42, mat.black, 0, 18.35, 0, 64, rocket);
+
+    // First-stage vertical seams.
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const x = Math.cos(a) * 3.355;
+      const z = Math.sin(a) * 3.355;
+      beam([x, 2.35, z], [x, 18.1, z], 0.018, mat.offWhite, rocket, 5);
+    }
+
+    // Interstage and second stage.
+    cylinder(3.16, 3.16, 0.75, mat.darkMetal, 0, 19.05, 0, 64, rocket);
+    cylinder(3.12, 3.12, 10.8, mat.white, 0, 24.82, 0, 64, rocket);
+    cylinder(3.16, 3.16, 0.58, mat.black, 0, 30.3, 0, 64, rocket);
+
+    // Third stage.
+    cylinder(3.08, 3.08, 6.4, mat.white, 0, 33.82, 0, 64, rocket);
+    cylinder(3.1, 3.1, 0.35, mat.black, 0, 37.08, 0, 64, rocket);
+
+    // Apollo service module.
+    cylinder(1.42, 1.42, 3.15, mat.metal, 0, 38.85, 0, 48, rocket);
+    cylinder(1.44, 1.44, 0.26, mat.black, 0, 38.25, 0, 48, rocket);
+    cylinder(1.44, 1.44, 0.25, mat.black, 0, 39.72, 0, 48, rocket);
+
+    // Apollo command module.
+    cylinder(0.42, 1.4, 2.2, mat.offWhite, 0, 41.53, 0, 48, rocket);
+    cylinder(0.39, 0.39, 0.24, mat.darkMetal, 0, 42.73, 0, 32, rocket);
+
+    // Launch escape system tower and jettison motor.
+    cylinder(0.34, 0.34, 6.3, mat.white, 0, 45.96, 0, 24, rocket);
+    cylinder(0.43, 0.43, 1.1, mat.white, 0, 49.6, 0, 24, rocket);
+    beam([-0.31, 43.05, 0], [-0.31, 48.6, 0], 0.055, mat.redDark, rocket, 6);
+    beam([0.31, 43.05, 0], [0.31, 48.6, 0], 0.055, mat.redDark, rocket, 6);
+    beam([-0.31, 43.05, 0], [0.31, 48.6, 0], 0.055, mat.redDark, rocket, 6);
+
+    // Engine skirt and clustered bells.
+    cylinder(3.4, 2.9, 1.25, mat.darkMetal, 0, 1.15, 0, 48, rocket);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      const x = Math.cos(a) * 1.85;
+      const z = Math.sin(a) * 1.85;
+      cylinder(0.32, 0.62, 1.8, mat.darkMetal, x, -0.18, z, 24, rocket);
+      cylinder(0.44, 0.44, 0.18, mat.metal, x, 0.7, z, 24, rocket);
+    }
+
+    // Umbilical connections and small service hardware.
+    for (let i = 0; i < 5; i++) {
+      const y = 7 + i * 5.4;
+      const a = 0.18;
+      const x = Math.cos(a) * 3.22;
+      const z = Math.sin(a) * 3.22;
+      box(0.5, 0.85, 0.45, mat.darkMetal, x, y, z, rocket);
+    }
+
+    function addDecal(kind, width, height, y, z = 3.39) {
+      const material = new THREE.MeshBasicMaterial({
+        map: makeDecalTexture(kind),
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false
+      });
+      const decal = mesh(new THREE.PlaneGeometry(width, height), material, 0, y, z, rocket);
+      decal.castShadow = false;
+      decal.receiveShadow = false;
+      return decal;
+    }
+
+    addDecal("usa", 5.2, 7.6, 10.4, 3.405);
+    addDecal("flag", 2.15, 3.5, 16.8, 3.405);
+    addDecal("nasa", 2.7, 2.7, 36.7, 3.105);
+
+    // ------------------------------------------------------------------
+    // Umbilical service tower
+    // ------------------------------------------------------------------
+
+    const tower = new THREE.Group();
+    tower.position.set(10.1, 0, -1.2);
+    world.add(tower);
+
+    const towerX = 2.0;
+    const towerZ = 2.0;
+    const towerHeight = 52;
+
+    for (const x of [-towerX, towerX]) {
+      for (const z of [-towerZ, towerZ]) {
+        beam([x, 0, z], [x, towerHeight, z], 0.17, mat.red, tower, 8);
+      }
+    }
+
+    for (let y = 0; y <= towerHeight; y += 4) {
+      for (const z of [-towerZ, towerZ]) {
+        beam([-towerX, y, z], [towerX, y, z], 0.105, mat.red, tower, 7);
+        beam([-towerX, y, z], [-towerX, y + 4, z], 0.075, mat.redDark, tower, 6);
+        beam([towerX, y, z], [towerX, y + 4, z], 0.075, mat.redDark, tower, 6);
+      }
+      for (const x of [-towerX, towerX]) {
+        beam([x, y, -towerZ], [x, y, towerZ], 0.105, mat.red, tower, 7);
+      }
+    }
+
+    // Service platforms.
+    for (const y of [10, 18, 26, 34, 42, 49]) {
+      box(4.7, 0.22, 4.7, mat.metal, 0, y, 0, tower);
+      box(4.8, 0.65, 0.12, mat.yellow, 0, y + 0.42, -2.35, tower);
+      for (const z of [-2.35, 2.35]) {
+        box(4.8, 0.65, 0.12, mat.yellow, 0, y + 0.42, z, tower);
+      }
+    }
+
+    // Elevator shaft.
+    box(1.45, 48, 1.45, mat.darkMetal, 0, 24, 0, tower);
+    box(1.55, 0.18, 1.55, mat.yellow, 0, 25, 0, tower);
+
+    // Swing arms reaching toward the launch vehicle.
+    function swingArm(y, length, width = 1.25) {
+      box(length, 0.28, width, mat.yellow, -length / 2, y, 0.25, tower);
+      beam([-length, y, -0.35], [-length, y - 0.65, -0.35], 0.075, mat.darkMetal, tower, 6);
+      beam([-length, y, 0.85], [-length, y - 0.65, 0.85], 0.075, mat.darkMetal, tower, 6);
+      box(0.85, 1.05, 1.15, mat.darkMetal, -length + 0.25, y - 0.35, 0.25, tower);
+    }
+    swingArm(18.1, 8.6);
+    swingArm(29.7, 8.5);
+    swingArm(39.4, 8.3);
+
+    // Tower crown, crane, and antennas.
+    box(5.2, 0.4, 5.2, mat.redDark, 0, 52, 0, tower);
+    beam([-2.4, 52, 0], [4.7, 52, 0], 0.12, mat.red, tower, 8);
+    beam([4.7, 52, 0], [4.7, 55.5, 0], 0.09, mat.redDark, tower, 7);
+    beam([0.4, 52, 0], [0.4, 56.3, 0], 0.05, mat.metal, tower, 6);
+    beam([-1.2, 52, 0], [-1.2, 55, 0], 0.045, mat.metal, tower, 6);
+
+    // Access elevator cage.
+    box(1.6, 2.3, 1.6, mat.yellow, 0, 27, 0, tower);
+    box(1.65, 0.12, 1.65, mat.darkMetal, 0, 28.2, 0, tower);
+
+    // ------------------------------------------------------------------
+    // Xenon floodlights
+    // ------------------------------------------------------------------
+
+    const floodlights = [
+      { x: 11, z: 11, tx: -4, tz: 0, ty: 22 },
+      { x: 12, z: -10, tx: -4, tz: 0, ty: 25 },
+      { x: -12, z: 9, tx: -4, tz: 0, ty: 19 },
+      { x: -12, z: -9, tx: -4, tz: 0, ty: 27 }
+    ];
+
+    floodlights.forEach((f, i) => {
+      const poleHeight = 8.2;
+      cylinder(0.13, 0.19, poleHeight, mat.darkMetal, f.x, poleHeight / 2, f.z, 12);
+      box(1.3, 0.18, 1.3, mat.metal, f.x, 0.08, f.z);
+
+      const head = new THREE.Group();
+      head.position.set(f.x, poleHeight, f.z);
+      world.add(head);
+      box(1.35, 0.75, 0.45, mat.darkMetal, 0, 0, 0, head);
+
+      const direction = new THREE.Vector3(f.tx - f.x, f.ty - poleHeight, f.tz - f.z).normalize();
+      head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction);
+
+      const lens = box(0.9, 0.45, 0.04, mat.glass, 0, 0, 0.25, head);
+      lens.castShadow = false;
+
+      const glow = makeGlow(0xbceeff, 0.65, 2.8);
+      glow.position.copy(head.position);
+      glow.position.addScaledVector(direction, 0.3);
+      scene.add(glow);
+
+      const light = new THREE.SpotLight(0xc7edff, i < 2 ? 330 : 220, 65, 0.52, 0.75, 1.5);
+      light.position.copy(head.position);
+      light.target.position.set(f.tx, f.ty, f.tz);
+      scene.add(light, light.target);
+
+      if (i === 0) {
+        light.castShadow = true;
+        light.shadow.mapSize.set(1024, 1024);
+        light.shadow.bias = -0.001;
+      }
+
+      // Very subtle cone volume to suggest the xenon beam in the dawn haze.
+      const beamLength = 45;
+      const cone = mesh(
+        new THREE.ConeGeometry(8.5, beamLength, 32, 1, true),
+        new THREE.MeshBasicMaterial({
+          color: 0xa8ddf4,
+          transparent: true,
+          opacity: 0.018,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending
+        }),
+        0, 0, 0
+      );
+      cone.castShadow = cone.receiveShadow = false;
+      cone.position.copy(head.position).addScaledVector(direction, beamLength / 2);
+      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().negate());
+    });
+
+    // ------------------------------------------------------------------
+    // Steam venting from the flame trench
+    // ------------------------------------------------------------------
+
+    const steamTexture = makeSteamTexture();
+    const steam = [];
+    const steamRandom = seededRandom(1969);
+
+    for (let i = 0; i < 72; i++) {
+      const material = new THREE.SpriteMaterial({
+        map: steamTexture,
+        color: 0xf4fbff,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(3, 3, 1);
+      scene.add(sprite);
+
+      steam.push({
+        sprite,
+        age: steamRandom() * 5,
+        life: 4.5 + steamRandom() * 4,
+        originX: -4 + (steamRandom() - 0.5) * 3.5,
+        originZ: 7.2 + steamRandom() * 3.6,
+        drift: (steamRandom() - 0.5) * 5.5,
+        rise: 4 + steamRandom() * 5,
+        base: 0.18 + steamRandom() * 0.24
+      });
+    }
+
+    function updateSteam(dt) {
+      steam.forEach(p => {
+        p.age += dt;
+        if (p.age > p.life) {
+          p.age = 0;
+          p.originX = -4 + (steamRandom() - 0.5) * 3.5;
+          p.originZ = 7.2 + steamRandom() * 3.6;
+          p.drift = (steamRandom() - 0.5) * 5.5;
+          p.rise = 4 + steamRandom() * 5;
+          p.base = 0.18 + steamRandom() * 0.24;
+        }
+
+        const t = p.age / p.life;
+        const spread = 1 + t * 2.7;
+        p.sprite.position.set(
+          p.originX + p.drift * t + Math.sin(t * 7 + p.base) * t,
+          -0.45 + p.rise * t,
+          p.originZ + t * 4.5
+        );
+        const size = 2.3 + t * 8.5;
+        p.sprite.scale.set(size * spread, size, 1);
+        p.sprite.material.opacity = Math.sin(Math.PI * t) * p.base * (1 - t * 0.3);
+        p.sprite.material.rotation = p.base * 10 + t * 1.4;
+      });
+    }
+
+    // Additional low steam leaking around the engine trench.
+    const leakSteam = [];
+    for (let i = 0; i < 18; i++) {
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: steamTexture,
+        color: 0xf4fbff,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false
+      }));
+      scene.add(sprite);
+      leakSteam.push({
+        sprite,
+        age: steamRandom() * 4,
+        life: 3 + steamRandom() * 3,
+        x: -4 + (steamRandom() - 0.5) * 6.2,
+        z: -7 + steamRandom() * 2
+      });
+    }
+
+    function updateLeaks(dt) {
+      leakSteam.forEach(p => {
+        p.age += dt;
+        if (p.age > p.life) {
+          p.age = 0;
+          p.x = -4 + (steamRandom() - 0.5) * 6.2;
+          p.z = -7 + steamRandom() * 2;
+        }
+        const t = p.age / p.life;
+        p.sprite.position.set(p.x + t * 1.3, -0.65 + t * 2.2, p.z - t * 2.3);
+        const s = 1.5 + t * 4;
+        p.sprite.scale.set(s * 1.35, s, 1);
+        p.sprite.material.opacity = Math.sin(Math.PI * t) * 0.14;
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // Distant launch complex silhouettes
+    // ------------------------------------------------------------------
+
+    const distant = new THREE.Group();
+    world.add(distant);
+    for (let i = 0; i < 13; i++) {
+      const x = -95 + i * 15;
+      const h = 5 + (i % 4) * 2.4;
+      const building = box(9 + (i % 3), h, 12, mat.darkConcrete, x, h / 2 - 1.25, -75 - (i % 3) * 8, distant);
+      building.castShadow = false;
+      const roof = box(7, 0.4, 9, mat.metal, x, h - 1.05, -75 - (i % 3) * 8, distant);
+      roof.castShadow = false;
+    }
+
+    // ------------------------------------------------------------------
+    // Direct camera controls
+    // ------------------------------------------------------------------
+
+    const target = new THREE.Vector3(0, 21.5, 0);
+    const spherical = new THREE.Spherical(76, 1.67, 0.72);
+    const desired = spherical.clone();
+    let dragging = false;
+    let previousX = 0;
+    let previousY = 0;
+
+    function resetCamera() {
+      desired.set(76, 1.67, 0.72);
+    }
+
+    function updateCamera() {
+      spherical.radius += (desired.radius - spherical.radius) * 0.1;
+      spherical.phi += (desired.phi - spherical.phi) * 0.1;
+      spherical.theta += (desired.theta - spherical.theta) * 0.1;
+      camera.position.setFromSpherical(spherical).add(target);
+      camera.lookAt(target);
+    }
+
+    renderer.domElement.addEventListener("pointerdown", event => {
+      dragging = true;
+      previousX = event.clientX;
+      previousY = event.clientY;
+      renderer.domElement.setPointerCapture(event.pointerId);
+      renderer.domElement.style.cursor = "grabbing";
+    });
+
+    renderer.domElement.addEventListener("pointermove", event => {
+      if (!dragging) return;
+      const dx = event.clientX - previousX;
+      const dy = event.clientY - previousY;
+      previousX = event.clientX;
+      previousY = event.clientY;
+      desired.theta -= dx * 0.005;
+      desired.phi = THREE.MathUtils.clamp(desired.phi + dy * 0.0035, 0.55, 1.72);
+    });
+
+    function stopDragging() {
+      dragging = false;
+      renderer.domElement.style.cursor = "grab";
+    }
+
+    renderer.domElement.addEventListener("pointerup", stopDragging);
+    renderer.domElement.addEventListener("pointercancel", stopDragging);
+    renderer.domElement.addEventListener("wheel", event => {
+      event.preventDefault();
+      desired.radius = THREE.MathUtils.clamp(desired.radius + event.deltaY * 0.055, 38, 115);
+    }, { passive: false });
+
+    addEventListener("keydown", event => {
+      if (event.key.toLowerCase() === "r") resetCamera();
+    });
+
+    renderer.domElement.style.cursor = "grab";
+
+    // ------------------------------------------------------------------
+    // Animation
+    // ------------------------------------------------------------------
+
+    const clock = new THREE.Clock();
+    let elapsed = 0;
+    let frames = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.05);
+      elapsed += dt;
+
+      updateCamera();
+      updateSteam(dt);
+      updateLeaks(dt);
+
+      // A subtle atmospheric shimmer in the xenon lamps.
+      floodlights.forEach((f, i) => {
+        f.light.intensity = (i < 2 ? 330 : 220) * (0.985 + Math.sin(elapsed * 4.3 + i) * 0.015);
+      });
+
+      renderer.render(scene, camera);
+
+      frames++;
+      if (frames === 2) {
+        loading.classList.add("hidden");
+        setTimeout(() => loading.remove(), 700);
+      }
+    }
+
+    updateCamera();
+    animate();
+
+    addEventListener("resize", () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    });
+  </script>
+</body>
+</html>
