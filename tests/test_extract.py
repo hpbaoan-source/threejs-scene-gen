@@ -14,6 +14,7 @@ from scene_gen.extract import (  # noqa: E402
     has_three,
     looks_like_scene,
     parse_json_block,
+    sky_shader_problems,
     static_gates,
 )
 from scene_gen.pipeline import slugify  # noqa: E402
@@ -214,3 +215,52 @@ class TestSlug(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+SKY_SHADER_BAD = """<!DOCTYPE html>
+<html><head><title>t</title></head>
+<body><canvas id="c"></canvas>
+<script type="module">
+import * as THREE from "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js";
+const scene = new THREE.Scene();
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(180, 40, 24),
+  new THREE.ShaderMaterial({
+    uniforms: { topColor: { value: new THREE.Color(0x155b9e) } },
+    vertexShader: `void main() { gl_Position = vec4(position, 1.0); }`,
+    fragmentShader: `
+      uniform vec3 topColor;
+      void main() {
+        gl_FragColor = vec4(topColor, 1.0);
+      }
+    `
+  })
+);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(1280, 720);
+document.getElementById("c").appendChild(renderer.domElement);
+scene.add(sky);
+</script></body></html>
+"""
+
+SKY_SHADER_GOOD = SKY_SHADER_BAD.replace(
+    "gl_FragColor = vec4(topColor, 1.0);",
+    "gl_FragColor = vec4(topColor, 1.0);\n        #include <colorspace_fragment>",
+)
+
+
+class TestSkyShaderGate(unittest.TestCase):
+    def test_flags_a_shader_without_the_srgb_chunk(self):
+        problems = sky_shader_problems(SKY_SHADER_BAD)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("colorspace_fragment", problems[0])
+
+    def test_accepts_a_shader_with_the_srgb_chunk(self):
+        self.assertEqual(sky_shader_problems(SKY_SHADER_GOOD), [])
+
+    def test_scenes_without_a_shader_are_untouched(self):
+        self.assertEqual(sky_shader_problems(MINIMAL), [])
+
+    def test_the_gate_shows_up_in_static_gates(self):
+        problems = static_gates(SKY_SHADER_BAD)
+        self.assertTrue(any("colorspace_fragment" in p for p in problems))

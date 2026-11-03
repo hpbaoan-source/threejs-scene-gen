@@ -86,6 +86,15 @@ SCENES = [
         "meta": "9/10 · 0 lỗi console · 9.2 phút · $0.042",
         "note": "Dựng từ ảnh phối cảnh: mái ngói xanh, hồ bơi dài, vườn tiểu cảnh, 2 xe, góc nhìn aerial. Có nút Aerial/Front/Plan để xoay.",
     },
+    {
+        "file": "shuttle.html",
+        "src": "examples/shuttle.html",
+        "shot": "examples/shot-shuttle.png",
+        "title": "Space Shuttle Discovery cất cánh",
+        "tag": "vision",
+        "meta": "6/10 · 0 lỗi console · 37 phút · $0.157",
+        "note": "Dựng từ ảnh NASA: bình nhiên liệu cam, 2 SRB, 2 luồng lửa, khói lớn, tháp phóng bên trái. Có HUD động.",
+    },
 ]
 
 PAGE = """<!doctype html>

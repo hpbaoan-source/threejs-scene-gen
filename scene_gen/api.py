@@ -107,24 +107,30 @@ class Client:
         )
         return Response(data)
 
-    def complete_with_image(self, image_bytes, prompt, system=None, max_tokens=None, effort=None):
-        """One image-in / text-out call. Image must be PNG or JPEG bytes."""
-        media_type = "image/jpeg" if image_bytes[:2] == b"\xff\xd8" else "image/png"
-        content = [
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": media_type,
-                    "data": base64.b64encode(image_bytes).decode(),
-                },
-            },
-            {"type": "text", "text": prompt},
-        ]
+    def complete_with_images(self, image_list, prompt, system=None, max_tokens=None, effort=None):
+        """One multi-image / text-out call. Images must be PNG or JPEG bytes."""
+        content = []
+        for blob in image_list:
+            media_type = "image/jpeg" if blob[:2] == b"\xff\xd8" else "image/png"
+            content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": base64.b64encode(blob).decode(),
+                    },
+                }
+            )
+        content.append({"type": "text", "text": prompt})
         data = self._post(
             self._body([{"role": "user", "content": content}], system, max_tokens, effort)
         )
         return Response(data)
+
+    def complete_with_image(self, image_bytes, prompt, system=None, max_tokens=None, effort=None):
+        """One image-in / text-out call. Image must be PNG or JPEG bytes."""
+        return self.complete_with_images([image_bytes], prompt, system, max_tokens, effort)
 
 
 class Response:

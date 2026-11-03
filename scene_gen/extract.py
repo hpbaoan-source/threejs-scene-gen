@@ -109,6 +109,31 @@ def static_gates(html):
         problems.append("khong tim thay import three.js")
     if len(html) < 1500:
         problems.append(f"HTML qua ngan ({len(html)} bytes) - co the bi cat ngan")
+    problems.extend(sky_shader_problems(html))
+    return problems
+
+
+def sky_shader_problems(html):
+    """Catch a custom sky/gradient shader that skips the sRGB output step.
+
+    Three.js converts a material's colours from linear to sRGB in the
+    `colorspace_fragment` shader chunk. A hand-written ShaderMaterial that
+    writes `gl_FragColor` without that chunk puts linear values straight into
+    the framebuffer, so every colour in the shader comes out about one gamma
+    too dark - a daytime sky renders as night. The bug is invisible in the
+    code review and in the model output, so it is checked here instead.
+    """
+    problems = []
+    if "ShaderMaterial" not in html:
+        return problems
+    if "gl_FragColor" not in html:
+        return problems
+    if "colorspace_fragment" in html:
+        return problems
+    problems.append(
+        "ShaderMaterial tu viet gl_FragColor nhung thieu #include <colorspace_fragment> "
+        "- mau se bi toi mot gamma (ban ngay ra dem)"
+    )
     return problems
 
 

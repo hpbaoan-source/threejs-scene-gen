@@ -230,6 +230,7 @@
             float h = smoothstep(-0.15, 0.75, vHeight);
             vec3 color = mix(bottomColor, topColor, h);
             gl_FragColor = vec4(color, 1.0);
+            #include <colorspace_fragment>
           }
         `
       })
@@ -426,6 +427,7 @@
 
           float alpha = 0.84;
           gl_FragColor = vec4(color, alpha);
+          #include <colorspace_fragment>
         }
       `
     });

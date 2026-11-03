@@ -26,7 +26,12 @@ DEFAULT_SYSTEM = (
     "Do not import addons or legacy examples/js paths; "
     "implement any camera controls directly inside the HTML. "
     "Deliver one complete self-contained HTML file: scene, lighting, camera and a "
-    "small on-screen HUD. Prefer readable lighting with real shadows over a dark scene."
+    "small on-screen HUD. Prefer readable lighting with real shadows over a dark scene. "
+    "If you write a custom sky or gradient ShaderMaterial, you MUST end the fragment "
+    "shader with '#include <colorspace_fragment>' right after setting gl_FragColor: "
+    "Three.js converts colours from linear to sRGB in that chunk, so a hand-written "
+    "shader without it renders every colour about one gamma too dark, which turns a "
+    "daytime sky into night."
 )
 
 
@@ -104,8 +109,10 @@ class Result:
         }
 
 
-def _generate(client, prompt, system, effort, image_bytes=None):
-    if image_bytes:
+def _generate(client, prompt, system, effort, image_bytes=None, image_list=None):
+    if image_list:
+        response = client.complete_with_images(image_list, prompt, system=system, effort=effort)
+    elif image_bytes:
         response = client.complete_with_image(image_bytes, prompt, system=system, effort=effort)
     else:
         response = client.complete(prompt, system=system, effort=effort)
@@ -167,12 +174,22 @@ def run(
     settle_ms=6000,
     image_path=None,
     start_html=None,
+    ref_in_review=None,
     log=print,
 ):
     """Run the pipeline. Returns a Result."""
     client = Client(model=model, effort=effort, max_tokens=max_tokens)
     started = time.time()
     image_bytes = _read_bytes(image_path) if image_path else None
+
+    # When a reference photo is given, the review and the repair step should see
+    # it too - otherwise "fidelity" is judged against the text prompt only and
+    # elements that are simply missing from the render go unnoticed.
+    if ref_in_review is None:
+        ref_in_review = bool(image_bytes)
+    reference_bytes = image_bytes if ref_in_review else None
+    if reference_bytes:
+        log("reference photo is included in every review and repair call")
 
     if not workdir:
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -226,13 +243,24 @@ def run(
             frame_gates = previous.render_report.get("gates") or []
             if frame_gates:
                 review_payload["frameGates"] = frame_gates
+            if previous.static_problems:
+                review_payload["staticProblems"] = previous.static_problems
             repair_prompt = build_repair_prompt(
                 prompt,
                 review_payload,
                 previous_html,
                 render_note=f"Previous render: {previous.png_path}",
+                has_reference=bool(reference_bytes),
             )
-            html, response = _generate(client, repair_prompt, system, effort)
+            # The patcher sees the reference photo and the previous render next
+            # to the HTML, so it can tell "this element is missing" apart from
+            # "this element looks wrong".
+            patch_images = None
+            if reference_bytes:
+                prev_render = _read_bytes(previous.png_path)
+                if prev_render:
+                    patch_images = [reference_bytes, prev_render]
+            html, response = _generate(client, repair_prompt, system, effort, image_list=patch_images)
             attempt.tokens = {
                 "output_tokens": response.output_tokens,
                 "input_tokens": response.input_tokens,
@@ -287,6 +315,7 @@ def run(
                 _read_bytes(sheet_path),
                 threshold=threshold,
                 render_note=f"Render attempt {index} of {slugify(prompt)}.",
+                reference_bytes=reference_bytes,
             )
             log(
                 "[%d] review: %s score=%s issues=%d"

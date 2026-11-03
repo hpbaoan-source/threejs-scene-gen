@@ -36,6 +36,16 @@ def main():
     ap.add_argument("--workdir", help="thu muc luu ket qua (mac dinh: runs/<slug>-<timestamp>)")
     ap.add_argument("--image", help="anh tham chieu cho lan sinh dau (base64 gui len API)")
     ap.add_argument(
+        "--ref-in-review",
+        dest="ref_in_review",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "gui ca anh tham chieu vao moi vong review va vong va (mac dinh: bat neu co --image). "
+            "Tat de review chi nhin anh render."
+        ),
+    )
+    ap.add_argument(
         "--start-from",
         help="dung mot file HTML co san lam diem bat dau thay vi sinh moi (so sanh A/B chinh xac)",
     )
@@ -71,6 +81,7 @@ def main():
         settle_ms=args.settle,
         image_path=args.image,
         start_html=args.start_from,
+        ref_in_review=args.ref_in_review,
         log=log,
     )
 

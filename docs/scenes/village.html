@@ -235,6 +235,8 @@
           color += vec3(0.42, 0.20, 0.10) * glow;
 
           gl_FragColor = vec4(color, 1.0);
+
+          #include <colorspace_fragment>
         }
       `
     });
